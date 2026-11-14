@@ -322,6 +322,41 @@ async function runReferences(prompt: string, title: string) {
   };
 }
 
+/** S5 内容工厂（科普图文 / 短视频脚本 / 患教卡片，类型由服务端按主题识别） */
+async function runContentGen(prompt: string, title: string) {
+  const res = await fetch(`${AI_URL}/api/skills/content`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic: prompt.trim().slice(0, 500) }),
+  });
+
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    title?: string;
+    content_type?: string;
+    markdown?: string;
+    stats?: Record<string, unknown>;
+    warnings?: string[];
+  } | null;
+
+  if (!res.ok || !data) throw new Error(`内容服务返回 ${res.status}`);
+  if (data.error) throw new Error(data.error);
+
+  const stats = data.stats ?? {};
+  const label = String(stats.type_label ?? "内容");
+  return {
+    kind: "content",
+    summary: `「${data.title ?? title}」${label}已生成（${String(stats.word_count ?? 0)} 字${
+      stats.total_seconds ? `，约 ${String(stats.total_seconds)} 秒` : ""
+    }）`,
+    title: data.title ?? title,
+    content_type: data.content_type ?? "article",
+    markdown: data.markdown ?? "",
+    stats,
+    warnings: data.warnings ?? [],
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -355,7 +390,9 @@ export function runTask(taskId: string) {
                     ? await runClinicalDesign(input.prompt, task.title)
                     : task.type === TaskType.REFERENCE_FORMAT
                       ? await runReferences(input.prompt, task.title)
-                      : (await sleep(1200), mockDeliverable(task.type, task.title));
+                      : task.type === TaskType.CONTENT_GEN
+                        ? await runContentGen(input.prompt, task.title)
+                        : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);

@@ -19,6 +19,7 @@ from app.services.charts import (
     render_chart,
 )
 from app.services.clinical import build_clinical
+from app.services.content import CONTENT_TYPES, build_content
 from app.services.design import build_design
 from app.services.digest import digest_pmid
 from app.services.llm import LLMError, complete, resolve_provider
@@ -197,3 +198,26 @@ async def references(req: ReferencesRequest) -> dict:
         return {"error": str(err)}
     except httpx.HTTPError as err:
         return {"error": f"PubMed 访问失败：{type(err).__name__}"}
+
+
+class ContentRequest(BaseModel):
+    topic: str = Field(min_length=2, max_length=500)
+    content_type: str | None = Field(default=None, max_length=20)
+    platform: str | None = Field(default=None, max_length=20)
+    audience: str | None = Field(default=None, max_length=20)
+    tone: str = Field(default="专业亲和", max_length=20)
+
+
+@router.post("/content")
+async def content(req: ContentRequest) -> dict:
+    """S5 内容工厂（科普图文 / 短视频脚本 / 患教卡片）。"""
+    try:
+        return await build_content(
+            req.topic,
+            content_type=req.content_type,
+            platform=req.platform,
+            audience=req.audience,
+            tone=req.tone,
+        )
+    except ValueError as err:
+        return {"error": str(err)}
