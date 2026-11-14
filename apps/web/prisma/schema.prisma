@@ -50,16 +50,24 @@ model AvatarJob {
   @@index([taskId])
 }
 
-/// 积分充值订单（支付接入前为测试支付；支付回调后改为 PAID）
+/// 积分充值订单：CREATED → PENDING → PAID / FAILED / REFUNDED
+/// 金额一律存「分」；回调验签 + outTradeNo/transactionId 去重保证幂等
 model RechargeOrder {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  packageId String
-  priceYuan Int
-  credits   Int
-  status    String   @default("MOCK_PAID") // MOCK_PAID | PAID | REFUNDED
-  createdAt DateTime @default(now())
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  packageId     String
+  priceYuan     Int
+  credits       Int
+  provider      String    @default("mock") // mock | wechat | alipay
+  outTradeNo    String    @unique @default(cuid()) // 商户订单号（提交给支付平台）
+  transactionId String?   @unique // 支付平台交易号（回调幂等依据）
+  amountFen     Int       @default(0) // 应付金额（分）
+  status        String    @default("CREATED") // CREATED | PENDING | PAID | FAILED | REFUNDED
+  paidAt        DateTime?
+  callbackJson  String? // 回调原文（对账与审计）
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([userId, createdAt])
 }

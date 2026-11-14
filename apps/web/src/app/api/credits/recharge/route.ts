@@ -1,14 +1,25 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { findRechargePackage } from "@medbuddy/shared";
+import { resolvePaymentProvider } from "@/lib/payments";
+import { PaymentOrderStatus, yuanToFen, findRechargePackage } from "@medbuddy/shared";
 
-const bodySchema = z.object({ packageId: z.string().min(1) });
+const bodySchema = z.object({
+  packageId: z.string().min(1),
+  provider: z.enum(["mock", "wechat", "alipay"]).optional(),
+});
+
+/** 商户订单号：MB + 毫秒时间戳 + 4 位随机（微信要求 6-32 位） */
+function makeOutTradeNo(): string {
+  return `MB${Date.now()}${crypto.randomInt(1000, 9999)}`;
+}
 
 /**
- * 充值积分（当前为测试支付，未接支付通道）。
- * 接入微信/支付宝后：创建订单(status=CREATED) → 支付回调验签成功 → 执行此处入账逻辑。
+ * 创建充值订单并获取支付参数。
+ * 未配置商户号的真实渠道自动回退模拟支付（fallback=true），明确提示不产生真实扣款。
+ * 入账只在支付回调中进行（见 /api/payments/callback/[provider]）。
  */
 export async function POST(req: Request) {
   const user = await getCurrentUser();
@@ -22,45 +33,70 @@ export async function POST(req: Request) {
   const pack = findRechargePackage(parsed.data.packageId);
   if (!pack) return NextResponse.json({ error: "充值包不存在" }, { status: 404 });
 
+  const { adapter, fallback } = resolvePaymentProvider(parsed.data.provider);
+  if (!adapter.isConfigured()) {
+    return NextResponse.json(
+      { error: "模拟支付仅限开发环境，生产环境请配置支付商户号" },
+      { status: 503 },
+    );
+  }
+
+  const amountFen = yuanToFen(pack.priceYuan);
+  const outTradeNo = makeOutTradeNo();
+
+  const order = await prisma.rechargeOrder.create({
+    data: {
+      userId: user.id,
+      packageId: pack.id,
+      priceYuan: pack.priceYuan,
+      credits: pack.credits,
+      provider: adapter.id,
+      outTradeNo,
+      amountFen,
+      status: PaymentOrderStatus.CREATED,
+    },
+  });
+
+  let payment;
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const account = await tx.creditAccount.findUniqueOrThrow({ where: { userId: user.id } });
-      const balanceAfter = account.balance + pack.credits;
-
-      const order = await tx.rechargeOrder.create({
-        data: {
-          userId: user.id,
-          packageId: pack.id,
-          priceYuan: pack.priceYuan,
-          credits: pack.credits,
-          status: "MOCK_PAID",
-        },
-      });
-      await tx.creditAccount.update({
-        where: { id: account.id },
-        data: { balance: balanceAfter, totalEarn: { increment: pack.credits } },
-      });
-      await tx.creditLedger.create({
-        data: {
-          userId: user.id,
-          type: "RECHARGE",
-          amount: pack.credits,
-          balanceAfter,
-          note: `充值${pack.name} ¥${pack.priceYuan}`,
-        },
-      });
-      return { order, balanceAfter };
-    });
-
-    return NextResponse.json({
-      ok: true,
-      mock: true,
-      message: `已测试充值 ${pack.name}：¥${pack.priceYuan} → ${pack.credits} 积分`,
-      orderId: result.order.id,
-      balance: result.balanceAfter,
+    payment = await adapter.createPayment({
+      outTradeNo,
+      amountFen,
+      subject: `MedBuddy ${pack.name} ${pack.credits}积分`,
     });
   } catch (err) {
-    console.error("[credits/recharge]", err);
-    return NextResponse.json({ error: "充值失败，请稍后重试" }, { status: 500 });
+    await prisma.rechargeOrder.update({
+      where: { id: order.id },
+      data: { status: PaymentOrderStatus.FAILED },
+    });
+    console.error("[credits/recharge] createPayment", err);
+    return NextResponse.json({ error: "支付下单失败，请稍后重试" }, { status: 502 });
   }
+
+  await prisma.rechargeOrder.update({
+    where: { id: order.id },
+    data: { status: PaymentOrderStatus.PENDING },
+  });
+
+  const fallbackHint =
+    fallback && parsed.data.provider
+      ? `${parsed.data.provider} 支付未配置商户号，已切换为模拟支付（不产生真实扣款）`
+      : null;
+
+  return NextResponse.json({
+    ok: true,
+    order: {
+      id: order.id,
+      outTradeNo,
+      provider: adapter.id,
+      amountFen,
+      credits: pack.credits,
+      status: PaymentOrderStatus.PENDING,
+    },
+    payUrl: payment.payUrl ?? null,
+    payParams: payment.payParams ?? null,
+    fallback,
+    mock: adapter.id === "mock",
+    message: fallbackHint ?? (adapter.id === "mock" ? "已创建模拟支付订单，请点击「模拟支付」完成" : "订单已创建，请完成支付"),
+  });
 }

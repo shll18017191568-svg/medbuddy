@@ -233,6 +233,42 @@ export function findRechargePackage(id: string): RechargePackage | undefined {
   return RECHARGE_PACKAGES.find((p) => p.id === id);
 }
 
+/** 支付渠道（mock 用于本地联调，未配置商户号时强制 mock） */
+export enum PaymentProvider {
+  MOCK = "mock",
+  WECHAT = "wechat",
+  ALIPAY = "alipay",
+}
+
+export const PAYMENT_PROVIDER_LABEL: Record<string, string> = {
+  [PaymentProvider.MOCK]: "模拟支付",
+  [PaymentProvider.WECHAT]: "微信支付",
+  [PaymentProvider.ALIPAY]: "支付宝",
+};
+
+/** 充值订单状态机：创建 → 待支付 → 已支付 / 失败 / 已退款 */
+export enum PaymentOrderStatus {
+  CREATED = "CREATED",
+  PENDING = "PENDING",
+  PAID = "PAID",
+  FAILED = "FAILED",
+  REFUNDED = "REFUNDED",
+}
+
+export const PAYMENT_ORDER_STATUS_LABEL: Record<string, string> = {
+  [PaymentOrderStatus.CREATED]: "待支付",
+  [PaymentOrderStatus.PENDING]: "待支付",
+  [PaymentOrderStatus.PAID]: "已支付",
+  [PaymentOrderStatus.FAILED]: "支付失败",
+  [PaymentOrderStatus.REFUNDED]: "已退款",
+  MOCK_PAID: "已支付", // 历史测试单
+};
+
+/** 金额换算：元 → 分（支付平台一律用分，避免浮点误差） */
+export function yuanToFen(yuan: number): number {
+  return Math.round(yuan * 100);
+}
+
 /** 数字人音色（id 与 AI 服务 avatar.py 的音色表保持一致） */
 export const AVATAR_VOICES = [
   { id: "warm_female", label: "温暖女声 · 科普讲解" },
