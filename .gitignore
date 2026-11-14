@@ -1,0 +1,31 @@
+# 依赖
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# 构建产物
+.next/
+dist/
+build/
+out/
+
+# 环境与密钥
+.env
+.env.local
+.env*.local
+
+# IDE / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 日志与缓存
+*.log
+npm-debug.log*
+.turbo/
+coverage/
+
+# Prisma
+packages/shared/generated/
