@@ -34,6 +34,55 @@ export enum TaskType {
   CONTENT_GEN = "content_gen", // 内容工厂
 }
 
+/** 任务类型元数据：显示名 + 单次积分价格（前端展示与后端扣费共用此表） */
+export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; description: string }> = {
+  [TaskType.LITERATURE_SEARCH]: {
+    label: "文献检索",
+    price: 100,
+    description: "一句话检索 PubMed/万方，返回带 PMID 的筛选清单",
+  },
+  [TaskType.LITERATURE_DIGEST]: {
+    label: "文献解读",
+    price: 200,
+    description: "上传文献 PDF 或 PMID，输出结构化拆解报告",
+  },
+  [TaskType.CHART]: {
+    label: "学术绘图",
+    price: 300,
+    description: "上传数据，一句话生成顶刊配色学术图表",
+  },
+  [TaskType.REFERENCE_FORMAT]: {
+    label: "参考文献排版",
+    price: 100,
+    description: "PMID 清单一键生成 9000+ 期刊格式引文",
+  },
+  [TaskType.AVATAR_CHAT]: {
+    label: "数字人对话",
+    price: 50,
+    description: "医疗文献大模型驱动的 AI 数字人问答",
+  },
+  [TaskType.AVATAR_CLONE]: {
+    label: "数字人定制",
+    price: 2000,
+    description: "形象/声音克隆定制，交付专属数字人",
+  },
+  [TaskType.CONTENT_GEN]: {
+    label: "内容生成",
+    price: 200,
+    description: "科普图文/短视频脚本/汇报 PPT 生成",
+  },
+};
+
+/** 任务状态中文展示名 */
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  [TaskStatus.DRAFT]: "待确认",
+  [TaskStatus.QUEUED]: "排队中",
+  [TaskStatus.RUNNING]: "执行中",
+  [TaskStatus.REVIEWING]: "审核中",
+  [TaskStatus.DELIVERED]: "已完成",
+  [TaskStatus.FAILED]: "失败",
+};
+
 /** 注册赠送积分（新用户冷启动额度，创始人定的增长策略） */
 export const REGISTER_CREDIT_BONUS = 10000;
 

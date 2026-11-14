@@ -75,8 +75,14 @@ export default function Home() {
               </p>
             </div>
             <div className="flex gap-2">
+              <Link
+                href="/tasks"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                任务中心
+              </Link>
               {!me.user.profile && (
-                <Link href="/onboarding" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                <Link href="/onboarding" className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
                   完善资料
                 </Link>
               )}
