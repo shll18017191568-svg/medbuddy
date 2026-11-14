@@ -17,11 +17,20 @@ type Me = {
 
 type HealthState = { loading: boolean; ai?: unknown; detail?: string };
 
+type CheckInState = { checkedIn: boolean; streak: number; reward: number; balance: number };
+
 export default function Home() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
+  const [checkin, setCheckin] = useState<CheckInState | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [health, setHealth] = useState<HealthState>({ loading: true });
+
+  const loadCheckin = () =>
+    fetch("/api/credits/checkin")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setCheckin(d))
+      .catch(() => {});
 
   useEffect(() => {
     fetch("/api/auth/me")
@@ -30,11 +39,18 @@ export default function Home() {
       .catch(() => setMe(null))
       .finally(() => setAuthLoading(false));
 
+    loadCheckin();
+
     fetch("/api/health")
       .then((r) => r.json())
       .then((d) => setHealth({ loading: false, ai: d.ai, detail: d.detail }))
       .catch(() => setHealth({ loading: false, ai: "unreachable", detail: "fetch failed" }));
   }, []);
+
+  async function doCheckin() {
+    const res = await fetch("/api/credits/checkin", { method: "POST" });
+    if (res.ok) await loadCheckin();
+  }
 
   const aiOk =
     !health.loading && typeof health.ai === "object" && health.ai !== null &&
@@ -60,36 +76,60 @@ export default function Home() {
         {authLoading ? (
           <p className="text-slate-400">加载中…</p>
         ) : me ? (
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="font-semibold">
-                {me.user.profile?.name ?? "医生"} {me.user.profile && <span className="ml-1 text-sm font-normal text-slate-500">{me.user.profile.title} · {me.user.profile.hospital}</span>}
-              </p>
-              <p className="mt-1 text-sm text-slate-500">
-                {me.user.phone} · 积分 <b className="text-blue-600">{me.user.creditBalance}</b>
-                {me.user.profile && (
-                  <span className={`ml-3 rounded-full px-2 py-0.5 text-xs ${me.user.profile.verifyStatus === "APPROVED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                    {me.user.profile.verifyStatus === "APPROVED" ? "已认证" : "待审核"}
-                  </span>
-                )}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Link
-                href="/tasks"
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                任务中心
-              </Link>
-              {!me.user.profile && (
-                <Link href="/onboarding" className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
-                  完善资料
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold">
+                  {me.user.profile?.name ?? "医生"} {me.user.profile && <span className="ml-1 text-sm font-normal text-slate-500">{me.user.profile.title} · {me.user.profile.hospital}</span>}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {me.user.phone} · 积分 <b className="text-blue-600">{me.user.creditBalance}</b>
+                  {me.user.profile && (
+                    <span className={`ml-3 rounded-full px-2 py-0.5 text-xs ${me.user.profile.verifyStatus === "APPROVED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                      {me.user.profile.verifyStatus === "APPROVED" ? "已认证" : "待审核"}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Link
+                  href="/tasks"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  任务中心
                 </Link>
-              )}
-              <button onClick={logout} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
-                退出
-              </button>
+                {!me.user.profile && (
+                  <Link href="/onboarding" className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
+                    完善资料
+                  </Link>
+                )}
+                <button onClick={logout} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
+                  退出
+                </button>
+              </div>
             </div>
+            {/* 每日签到 */}
+            {checkin && (
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
+                <p className="text-sm text-slate-600">
+                  每日签到 +{checkin.reward} 积分
+                  {checkin.streak > 0 && (
+                    <span className="ml-2 text-xs text-amber-600">已连续 {checkin.streak} 天</span>
+                  )}
+                </p>
+                <button
+                  onClick={doCheckin}
+                  disabled={checkin.checkedIn}
+                  className={`rounded-lg px-4 py-1.5 text-sm font-medium ${
+                    checkin.checkedIn
+                      ? "bg-slate-200 text-slate-400"
+                      : "bg-amber-500 text-white hover:bg-amber-600"
+                  }`}
+                >
+                  {checkin.checkedIn ? "今日已签到" : "签到"}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex items-center justify-between">

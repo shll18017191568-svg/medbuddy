@@ -86,6 +86,9 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
 /** 注册赠送积分（新用户冷启动额度，创始人定的增长策略） */
 export const REGISTER_CREDIT_BONUS = 10000;
 
+/** 每日签到奖励积分 */
+export const CHECKIN_REWARD = 100;
+
 /** 状态流转合法性校验（AI 服务回写状态时同样遵守） */
 export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.DRAFT]: [TaskStatus.QUEUED, TaskStatus.FAILED],
