@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     qwen_api_key: str = ""
     glm_api_key: str = ""
 
+    # NCBI PubMed E-utilities（免费；配置 api_key 可提升限流到 10 req/s）
+    pubmed_api_key: str = ""
+    pubmed_email: str = ""
+    pubmed_timeout: float = 30.0
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

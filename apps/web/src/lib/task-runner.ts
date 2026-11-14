@@ -1,12 +1,14 @@
 /**
- * S1 模拟任务执行器：演示"提交→排队→执行→审核→回传"全状态流转。
- * S2 起此函数替换为调用 FastAPI 真实技能；S3 长任务迁 BullMQ 队列
- * （注意：fire-and-forget 在 serverless 环境会被冻结，部署前必须迁移）。
+ * 任务执行器：按任务类型调用真实技能，推进状态机直至回传。
+ * - 文献检索（S2）：调用 AI 服务 PubMed 真实检索；
+ * - 其他类型：暂用模拟交付物（后续 Sprint 逐个替换）。
+ * 注意：fire-and-forget 在 serverless 环境会被冻结，部署前需迁移到队列（S3 BullMQ）。
  */
 import { prisma } from "@/lib/prisma";
 import { TaskStatus, canTransition, TaskType } from "@medbuddy/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
 /** 推进状态机（校验流转合法性） */
 async function transition(
@@ -21,38 +23,74 @@ async function transition(
   await prisma.task.update({ where: { id: taskId }, data: { status: to, ...extra } });
 }
 
-/** 按任务类型生成模拟交付物（S2 由真实技能替换） */
-function mockDeliverable(type: string, title: string) {
-  switch (type) {
-    case TaskType.LITERATURE_SEARCH:
-      return {
-        kind: "literature_list",
-        summary: `「${title}」检索完成：命中 3 篇高质量文献（模拟数据，S2 接 PubMed/万方真实检索）`,
-        items: [
-          { pmid: "38123456", title: "铁死亡在肿瘤免疫微环境中的作用", journal: "Cell Death Differ.", oa: true },
-          { pmid: "38234567", title: "Ferroptosis and tumor immunity: mechanisms", journal: "Nat Rev Immunol", oa: false },
-          { pmid: "38345678", title: "Targeting ferroptosis for cancer therapy", journal: "Signal Transduct Target Ther", oa: true },
-        ],
-      };
-    case TaskType.AVATAR_CHAT:
-      return { kind: "chat_reply", summary: "数字人回复（模拟）：基于《中国高尿酸血症指南 2023》，建议…" };
-    default:
-      return { kind: "generic", summary: `任务「${title}」执行完成（模拟交付物，S2 替换为真实技能产出）` };
+/** 技能 1：PubMed 文献检索（真实数据） */
+async function runLiteratureSearch(prompt: string, title: string) {
+  const res = await fetch(`${AI_URL}/api/skills/literature-search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: prompt, limit: 10, years: 5 }),
+  });
+  if (!res.ok) throw new Error(`检索服务返回 ${res.status}`);
+
+  const data = (await res.json()) as {
+    error?: string;
+    query?: string;
+    translated?: boolean;
+    count?: number;
+    items?: unknown[];
+  };
+  if (data.error) throw new Error(data.error);
+
+  const count = data.count ?? 0;
+  if (count === 0) {
+    return {
+      kind: "literature_list",
+      summary: `「${title}」未检索到符合条件的文献，建议放宽年限或调整关键词`,
+      query: data.query ?? prompt,
+      total: 0,
+      items: [],
+    };
   }
+
+  return {
+    kind: "literature_list",
+    summary: `「${title}」检索完成：命中 ${count} 篇（PubMed 近 5 年实时数据）${
+      data.translated ? "，已将您的需求自动转为专业检索式" : ""
+    }`,
+    query: data.query ?? prompt,
+    total: count,
+    items: data.items ?? [],
+  };
+}
+
+/** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
+function mockDeliverable(type: string, title: string) {
+  if (type === TaskType.AVATAR_CHAT) {
+    return { kind: "chat_reply", summary: "数字人回复（模拟）：基于《中国高尿酸血症指南 2023》，建议…" };
+  }
+  return { kind: "generic", summary: `任务「${title}」执行完成（模拟交付物，后续 Sprint 替换为真实技能产出）` };
 }
 
 /** 执行一个任务（异步推进状态机直至回传） */
-export function runMockTask(taskId: string) {
+export function runTask(taskId: string) {
   void (async () => {
     try {
-      await sleep(1500);
+      await sleep(800);
       await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
-      await sleep(3000);
-      await transition(taskId, TaskStatus.REVIEWING);
-      await sleep(1500);
+
       const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-      const result = mockDeliverable(task.type, task.title);
-      // 审核通过 → 回传交付（总纲：结果定向回传提交医生，S1 以状态+列表展示实现）
+      const input = JSON.parse(task.inputJson) as { prompt: string };
+
+      const result =
+        task.type === TaskType.LITERATURE_SEARCH
+          ? await runLiteratureSearch(input.prompt, task.title)
+          : (await sleep(1200), mockDeliverable(task.type, task.title));
+
+      // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
+      await transition(taskId, TaskStatus.REVIEWING);
+      await sleep(500);
+
+      // 回传交付（总纲：结果定向回传提交医生）
       await prisma.task.update({
         where: { id: taskId },
         data: {

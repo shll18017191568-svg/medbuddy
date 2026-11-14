@@ -187,9 +187,9 @@
 - [ ] S2：AI 核心链路 + 技能 1/2（W4–6）
   - [x] 大模型接入（2026-11-14 完成，tag v0.5.0）：OpenAI 兼容客户端（DeepSeek/通义/GLM 自动路由）、SSE 流式输出、医疗安全系统提示词、AI/chat 代理（登录校验+透传）、/chat 数字人对话页；mock 模式无 Key 可端到端验证；E2E PASS（20 帧 delta+done，未登录 401）
   - [x] DeepSeek 真实模型联通（2026-11-14）：Key 配置于用户环境变量 + apps/ai/.env（均不入库）；真实回复 PASS（AI 服务 346 帧；Web 代理 88 帧，回复含指南依据、无编造）
-  - [ ] 技能 1：文献检索（PubMed E-utilities 真实检索）
+  - [x] 技能 1：文献检索（2026-11-14 完成，tag v0.6.0）：PubMed E-utilities 真实检索（esearch+esummary）、LLM 大白话转专业检索式（含 MeSH/字段标签/Publication Type）、OA 标注与 PMID 原文链接、任务执行器接入真实技能；E2E PASS（任务提交→回传 10 篇真实 PMID）
   - [ ] 技能 2：文献解读（PDF/PMID 结构化拆解）
-  - [ ] 任务执行器接入真实技能
+  - [ ] 任务执行器接入技能 2
 - [ ] S3：科研扩展 + 数字人接入（W7–9）
 - [ ] S4：商业化 MVP 冻结（W10–12）
 - [ ] S5：测试合规（W13–14）

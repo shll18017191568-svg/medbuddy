@@ -157,14 +157,50 @@ export default function TaskDetailPage() {
             </span>
           </div>
           <p className="mt-3 font-medium">{String(result.summary ?? "")}</p>
+          {typeof result.query === "string" && (
+            <p className="mt-2 rounded-md bg-white/70 px-3 py-2 text-xs text-slate-500">
+              检索式：<span className="font-mono">{result.query}</span>
+            </p>
+          )}
           {Array.isArray(result.items) && (
             <ul className="mt-3 space-y-2">
-              {(result.items as { pmid: string; title: string; journal: string; oa: boolean }[]).map((it) => (
+              {(
+                result.items as {
+                  pmid: string;
+                  title: string;
+                  authors?: string;
+                  journal: string;
+                  pubdate?: string;
+                  pubtype?: string;
+                  oa: boolean;
+                  url?: string;
+                }[]
+              ).map((it) => (
                 <li key={it.pmid} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
-                  <p className="font-medium">{it.title}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-medium">{it.title}</p>
+                    <span
+                      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] ${
+                        it.oa ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {it.oa ? "OA 免费" : "付费"}
+                    </span>
+                  </div>
+                  {it.authors && <p className="mt-1 text-xs text-slate-500">{it.authors}</p>}
                   <p className="mt-1 text-xs text-slate-500">
-                    PMID: {it.pmid} · {it.journal} · {it.oa ? "OA 免费全文" : "付费"}
+                    <span className="italic">{it.journal}</span>
+                    {it.pubdate ? ` · ${it.pubdate}` : ""}
+                    {it.pubtype && it.pubtype !== "Not specified" ? ` · ${it.pubtype.split(",")[0]}` : ""}
                   </p>
+                  <a
+                    href={it.url ?? `https://pubmed.ncbi.nlm.nih.gov/${it.pmid}/`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-block text-xs text-blue-600 hover:underline"
+                  >
+                    PMID {it.pmid} · 查看原文 ↗
+                  </a>
                 </li>
               ))}
             </ul>

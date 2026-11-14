@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { runMockTask } from "@/lib/task-runner";
+import { runTask } from "@/lib/task-runner";
 import { TASK_TYPE_META, TaskMode, TaskStatus, TaskType } from "@medbuddy/shared";
 
 const bodySchema = z.object({
@@ -63,8 +63,8 @@ export async function POST(req: Request) {
       return created;
     });
 
-    // 事务成功后触发模拟执行（S2 替换为真实技能调用）
-    runMockTask(task.id);
+    // 事务成功后触发执行（文献检索走真实 PubMed 技能）
+    runTask(task.id);
 
     return NextResponse.json({ ok: true, task });
   } catch (err) {

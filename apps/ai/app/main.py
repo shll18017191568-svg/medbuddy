@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.llm import router as llm_router
+from app.api.skills import router as skills_router
 from app.core.config import settings
 
 app = FastAPI(
@@ -26,6 +27,8 @@ app.add_middleware(
 
 # S2：大模型对话（数字人核心）
 app.include_router(llm_router)
+# S2：医学科研技能（文献检索等）
+app.include_router(skills_router)
 
 
 @app.get("/api/health")
