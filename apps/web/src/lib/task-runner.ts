@@ -5,6 +5,7 @@
  * 注意：fire-and-forget 在 serverless 环境会被冻结，部署前需迁移到队列（S3 BullMQ）。
  */
 import { prisma } from "@/lib/prisma";
+import { precheckDeliverable, type PrecheckResult } from "@/lib/compliance";
 import { TaskStatus, canTransition, TaskType, ReviewStatus } from "@medbuddy/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -540,6 +541,32 @@ function mockDeliverable(type: string, title: string) {
   return { kind: "generic", summary: `任务「${title}」执行完成（模拟交付物，后续 Sprint 替换为真实技能产出）` };
 }
 
+/** 合规预审：服务不可用时降级为「需关注」，绝不阻塞人工审核 */
+async function runPrecheck(
+  type: string,
+  title: string,
+  result: unknown,
+): Promise<PrecheckResult> {
+  try {
+    return await precheckDeliverable(type, title, result);
+  } catch (err) {
+    return {
+      status: "WARN",
+      findings: [
+        {
+          level: "WARN",
+          code: "PRECHECK_UNAVAILABLE",
+          message: `合规预审服务不可用，请人工复核（${err instanceof Error ? err.message : String(err)}）`,
+        },
+      ],
+      pmids: [],
+      verified_pmids: [],
+      checked_chars: 0,
+      checked_at: new Date().toISOString(),
+    };
+  }
+}
+
 /** 执行一个任务（异步推进状态机直至回传） */
 export function runTask(taskId: string) {
   void (async () => {
@@ -580,10 +607,16 @@ export function runTask(taskId: string) {
         await recordAvatarJob(taskId, task.userId, result as Record<string, unknown>);
       }
 
-      // 交付物先落库，供合规审核台人工审核（审核通过后才回传医生）
+      // AI 合规预审 + 交付物落库，供合规审核台人工审核（通过后才回传医生）
+      const precheck = await runPrecheck(task.type, task.title, result);
       await prisma.task.update({
         where: { id: taskId },
-        data: { resultJson: JSON.stringify(result) },
+        data: {
+          resultJson: JSON.stringify(result),
+          precheckStatus: precheck.status,
+          precheckJson: JSON.stringify(precheck),
+          precheckAt: new Date(),
+        },
       });
       await transition(taskId, TaskStatus.REVIEWING, { reviewStatus: ReviewStatus.PENDING });
     } catch (err) {

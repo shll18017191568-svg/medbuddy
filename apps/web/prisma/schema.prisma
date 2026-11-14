@@ -124,6 +124,10 @@ model Task {
   reviewedAt   DateTime?
   reviewerId   String? // 审核管理员
   reviewerName String?
+  // AI 合规预审结果（人工审核前自动生成，供审核员参考）
+  precheckStatus String? // PASS | WARN | HIGH_RISK
+  precheckJson   String? // 预审发现项明细（JSON）
+  precheckAt     DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

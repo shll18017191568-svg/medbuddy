@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.avatar import router as avatar_router
+from app.api.compliance import router as compliance_router
 from app.api.llm import router as llm_router
 from app.api.skills import router as skills_router
 from app.core.config import settings
@@ -32,6 +33,8 @@ app.include_router(llm_router)
 app.include_router(skills_router)
 # S3：数字人（播报视频 / 形象声音克隆）
 app.include_router(avatar_router)
+# S5：合规预审（人工审核前的自动风险体检）
+app.include_router(compliance_router)
 
 
 @app.get("/api/health")

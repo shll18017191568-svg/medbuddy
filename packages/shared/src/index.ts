@@ -126,6 +126,19 @@ export const REVIEW_STATUS_LABEL: Record<string, string> = {
   [ReviewStatus.REJECTED]: "审核驳回",
 };
 
+/** AI 合规预审风险等级（人工审核前的自动体检） */
+export const PRECHECK_STATUS_LABEL: Record<string, string> = {
+  PASS: "预审通过",
+  WARN: "需关注",
+  HIGH_RISK: "高危",
+};
+
+export const PRECHECK_LEVEL_LABEL: Record<string, string> = {
+  HIGH: "高危",
+  WARN: "关注",
+  INFO: "提示",
+};
+
 /** 审核台必检项（人工审核清单，前端展示 + 驳回意见提示） */
 export const REVIEW_CHECKLIST = [
   "事实可溯源：文献类结论均带真实 PMID，且与原文一致",

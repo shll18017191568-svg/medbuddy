@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  PRECHECK_LEVEL_LABEL,
+  PRECHECK_STATUS_LABEL,
   REVIEW_CHECKLIST,
   REVIEW_STATUS_LABEL,
   ReviewStatus,
@@ -54,6 +56,8 @@ type AdminTask = {
   reviewNote: string | null;
   reviewedAt: string | null;
   reviewerName: string | null;
+  precheckStatus: string | null;
+  precheckJson: string | null;
   user: {
     phone: string;
     profile: { name: string; hospital: string; department?: string; title?: string } | null;
@@ -346,6 +350,8 @@ export default function AdminPage() {
                     </p>
                   </div>
 
+                  <PrecheckPanel raw={t.precheckJson} />
+
                   {result && (
                     <div className="mt-2 rounded-lg border border-slate-200 p-3">
                       <p className="text-xs font-semibold text-slate-500">交付物预览</p>
@@ -581,6 +587,67 @@ function parseJson(raw: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+type Precheck = {
+  status?: string;
+  findings?: { level: string; code: string; message: string }[];
+  pmids?: string[];
+  verified_pmids?: string[];
+  checked_chars?: number;
+};
+
+function PrecheckPanel({ raw }: { raw: string | null }) {
+  const pre = parseJson(raw) as Precheck | null;
+  if (!pre?.status) return null;
+
+  const style =
+    pre.status === "HIGH_RISK"
+      ? { box: "border-red-200 bg-red-50/70", badge: "bg-red-100 text-red-700", text: "text-red-800" }
+      : pre.status === "WARN"
+        ? { box: "border-amber-200 bg-amber-50/70", badge: "bg-amber-100 text-amber-700", text: "text-amber-800" }
+        : { box: "border-green-200 bg-green-50/70", badge: "bg-green-100 text-green-700", text: "text-green-800" };
+
+  const findings = pre.findings ?? [];
+  const pmids = pre.pmids ?? [];
+  const verified = pre.verified_pmids ?? [];
+
+  return (
+    <div className={`mt-2 rounded-lg border p-3 ${style.box}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className={`text-xs font-semibold ${style.text}`}>AI 合规预审（人工审核前自动体检）</p>
+        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${style.badge}`}>
+          {PRECHECK_STATUS_LABEL[pre.status] ?? pre.status}
+        </span>
+      </div>
+
+      {findings.length > 0 && (
+        <ul className="mt-2 space-y-1 text-xs leading-relaxed text-slate-700">
+          {findings.map((f, i) => (
+            <li key={i} className="flex gap-1.5">
+              <span
+                className={`mt-0.5 whitespace-nowrap rounded px-1.5 text-[10px] ${
+                  f.level === "HIGH"
+                    ? "bg-red-100 text-red-700"
+                    : f.level === "WARN"
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {PRECHECK_LEVEL_LABEL[f.level] ?? f.level}
+              </span>
+              <span>{f.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="mt-2 text-[11px] text-slate-500">
+        正文 {pre.checked_chars ?? 0} 字 · 识别 PMID {pmids.length} 条
+        {verified.length > 0 ? ` · 已核验可溯源 ${verified.length} 条` : ""}
+      </p>
+    </div>
+  );
 }
 
 function UserTable({
