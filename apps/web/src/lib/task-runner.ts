@@ -100,6 +100,61 @@ async function runLiteratureDigest(prompt: string, fallbackTitle: string) {
   };
 }
 
+/** 从需求文本中拆出「说明」与「CSV 数据」 */
+function extractTable(prompt: string): { instruction: string; csv: string } | null {
+  const parts = prompt.split(/数据[:：]/);
+  if (parts.length >= 2) {
+    const csv = parts.slice(1).join("数据：").trim();
+    return csv ? { instruction: parts[0].trim(), csv } : null;
+  }
+
+  const lines = prompt.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length >= 2 && lines[0].includes(",") && lines[1].includes(",")) {
+    return { instruction: "", csv: prompt.trim() };
+  }
+  return null;
+}
+
+/** 技能 8：数据分析与可视化（服务端确定性绘图） */
+async function runVisualize(prompt: string, title: string) {
+  const parsed = extractTable(prompt);
+  if (!parsed) {
+    throw new Error("未找到数据：请粘贴 CSV（首行为表头），并用「数据：」分隔需求说明与数据");
+  }
+
+  const res = await fetch(`${AI_URL}/api/skills/visualize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename: "inline.csv",
+      content_base64: Buffer.from(parsed.csv, "utf-8").toString("base64"),
+      instruction: parsed.instruction || title,
+    }),
+  });
+  if (!res.ok) throw new Error(`绘图服务返回 ${res.status}`);
+
+  const data = (await res.json()) as {
+    error?: string;
+    chart_type?: string;
+    chart_label?: string;
+    image?: string;
+    interpretation?: string;
+    rows?: number;
+    stats?: Record<string, unknown>;
+  };
+  if (data.error) throw new Error(data.error);
+
+  return {
+    kind: "chart",
+    summary: `「${title}」已生成${data.chart_label ?? "图表"}（${data.rows ?? 0} 行数据）`,
+    chart_type: data.chart_type,
+    chart_label: data.chart_label,
+    image: data.image,
+    interpretation: data.interpretation,
+    stats: data.stats,
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -123,7 +178,9 @@ export function runTask(taskId: string) {
           ? await runLiteratureSearch(input.prompt, task.title)
           : task.type === TaskType.LITERATURE_DIGEST
             ? await runLiteratureDigest(input.prompt, task.title)
-            : (await sleep(1200), mockDeliverable(task.type, task.title));
+            : task.type === TaskType.CHART
+              ? await runVisualize(input.prompt, task.title)
+              : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);

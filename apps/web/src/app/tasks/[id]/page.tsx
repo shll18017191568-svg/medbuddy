@@ -157,6 +157,31 @@ export default function TaskDetailPage() {
             </span>
           </div>
           <p className="mt-3 font-medium">{String(result.summary ?? "")}</p>
+          {typeof result.image === "string" && result.image.startsWith("data:image") && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={result.image}
+                alt={String(result.chart_label ?? "图表")}
+                className="mx-auto max-h-96"
+              />
+              <a
+                href={result.image}
+                download={`medbuddy-${String(result.chart_type ?? "chart")}.png`}
+                className="mt-2 inline-block text-xs text-blue-600 hover:underline"
+              >
+                下载 PNG
+              </a>
+            </div>
+          )}
+          {typeof result.interpretation === "string" && (
+            <div className="mt-3 rounded-lg bg-white p-3">
+              <p className="text-xs font-semibold text-slate-600">AI 解读</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
+                {result.interpretation}
+              </p>
+            </div>
+          )}
           {typeof result.query === "string" && (
             <p className="mt-2 rounded-md bg-white/70 px-3 py-2 text-xs text-slate-500">
               检索式：<span className="font-mono">{result.query}</span>
