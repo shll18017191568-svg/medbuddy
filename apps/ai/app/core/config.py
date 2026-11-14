@@ -6,7 +6,14 @@ class Settings(BaseSettings):
     env: str = "dev"
     cors_origins: list[str] = ["http://localhost:3000"]
 
-    # S2 起启用：大模型 API Key（DeepSeek/Qwen/GLM 多路由）
+    # 大模型路由：auto 按已配置的 Key 自动选择；mock 用于无 Key 演示
+    llm_provider: str = "auto"  # auto | deepseek | qwen | glm | mock
+    llm_model: str = ""  # 留空用服务商默认模型
+    llm_timeout: float = 60.0
+    llm_max_tokens: int = 2048
+    llm_temperature: float = 0.3
+
+    # 各服务商 Key（OpenAI 兼容协议）
     deepseek_api_key: str = ""
     qwen_api_key: str = ""
     glm_api_key: str = ""

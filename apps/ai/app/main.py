@@ -6,6 +6,7 @@ S0 里程碑 M0：健康检查跑通，与 Web 服务联调。
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.llm import router as llm_router
 from app.core.config import settings
 
 app = FastAPI(
@@ -22,6 +23,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# S2：大模型对话（数字人核心）
+app.include_router(llm_router)
 
 
 @app.get("/api/health")
