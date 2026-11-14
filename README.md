@@ -20,8 +20,11 @@ medbuddy/
 
 ```bash
 npm install
+npm run db:push      # 初始化本地 SQLite 数据库（首次）
 npm run dev          # http://localhost:3000
 ```
+
+> 开发环境变量：复制 `apps/web/.env.example` 为 `apps/web/.env`（AUTH_SECRET / SMS_PROVIDER 等）。
 
 ### AI 服务（apps/ai）
 

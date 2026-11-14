@@ -26,6 +26,11 @@ Thumbs.db
 npm-debug.log*
 .turbo/
 coverage/
+*.tsbuildinfo
+
+# 本地数据库（SQLite 开发库）
+*.db
+*.db-journal
 
 # Prisma
 packages/shared/generated/

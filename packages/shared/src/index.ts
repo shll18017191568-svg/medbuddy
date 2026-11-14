@@ -34,6 +34,9 @@ export enum TaskType {
   CONTENT_GEN = "content_gen", // 内容工厂
 }
 
+/** 注册赠送积分（对齐 WorkBuddy 新用户积分策略，总纲 §7 商业化） */
+export const REGISTER_CREDIT_BONUS = 2300;
+
 /** 状态流转合法性校验（AI 服务回写状态时同样遵守） */
 export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.DRAFT]: [TaskStatus.QUEUED, TaskStatus.FAILED],

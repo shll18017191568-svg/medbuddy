@@ -1,0 +1,63 @@
+// MedBuddy 数据模型（S1：用户认证 + 积分账户）
+// 注意：本地开发用 SQLite；上线时将 provider 改为 "postgresql" 并切换 DATABASE_URL 即可（模型兼容）。
+// SQLite 不支持 enum，状态字段用 String + 代码层常量约束（见 packages/shared）。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// 用户（医生 / 管理员）
+model User {
+  id        String   @id @default(cuid())
+  phone     String   @unique // 登录唯一凭证
+  role      String   @default("DOCTOR") // DOCTOR | ADMIN
+  status    String   @default("ACTIVE") // ACTIVE | DISABLED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile DoctorProfile?
+  credits CreditAccount?
+}
+
+/// 医生认证资料（S1 仅采集，人工审核在运营后台补齐）
+model DoctorProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  name         String // 真实姓名
+  hospital     String // 所在医院
+  department   String // 科室
+  title        String // 职称：住院医师/主治/副主任/主任医师
+  certNo       String? // 执业证书编号（选填）
+  verifyStatus String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// 短信验证码（开发模式码值直接返回；生产接短信服务商后只入库不返回）
+model SmsCode {
+  id        String    @id @default(cuid())
+  phone     String
+  code      String
+  purpose   String    @default("LOGIN") // LOGIN
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+/// 积分账户（S1 建表 + 注册赠送；签到/消费在后续任务卡）
+model CreditAccount {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  balance   Int      @default(0) // 当前积分余额
+  totalEarn Int      @default(0) // 累计获得（防对账错误）
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

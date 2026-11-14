@@ -10,9 +10,17 @@
   "scripts": {
     "dev": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web",
-    "lint": "npm run lint --workspace apps/web"
+    "lint": "npm run typecheck --workspace apps/web",
+    "typecheck": "npm run typecheck --workspace apps/web",
+    "db:push": "npm exec --workspace apps/web prisma db push",
+    "db:studio": "npm exec --workspace apps/web prisma studio"
   },
   "engines": {
     "node": ">=20"
+  },
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "@prisma/client@6.19.3": true
   }
 }

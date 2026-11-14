@@ -1,86 +1,123 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TaskStatus, TaskMode } from "@medbuddy/shared";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { TaskStatus } from "@medbuddy/shared";
 
-type HealthState =
-  | { loading: true }
-  | { loading: false; web: string; ai: unknown; detail?: string };
+type Me = {
+  user: {
+    id: string;
+    phone: string;
+    role: string;
+    profile: { name: string; hospital: string; department: string; title: string; verifyStatus: string } | null;
+    creditBalance: number;
+  };
+};
+
+type HealthState = { loading: boolean; ai?: unknown; detail?: string };
 
 export default function Home() {
+  const router = useRouter();
+  const [me, setMe] = useState<Me | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [health, setHealth] = useState<HealthState>({ loading: true });
 
   useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setMe(d))
+      .catch(() => setMe(null))
+      .finally(() => setAuthLoading(false));
+
     fetch("/api/health")
       .then((r) => r.json())
-      .then((d) => setHealth({ loading: false, ...d }))
-      .catch(() =>
-        setHealth({ loading: false, web: "ok", ai: "unreachable", detail: "fetch failed" }),
-      );
+      .then((d) => setHealth({ loading: false, ai: d.ai, detail: d.detail }))
+      .catch(() => setHealth({ loading: false, ai: "unreachable", detail: "fetch failed" }));
   }, []);
 
   const aiOk =
-    !health.loading &&
-    typeof health.ai === "object" &&
-    health.ai !== null &&
+    !health.loading && typeof health.ai === "object" && health.ai !== null &&
     (health.ai as { status?: string }).status === "ok";
 
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setMe(null);
+    router.refresh();
+  }
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-10 px-6">
+    <main className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-8 px-6">
       <header className="text-center">
         <h1 className="text-4xl font-bold tracking-tight">
           MedBuddy <span className="text-blue-600">医生智能工作台</span>
         </h1>
-        <p className="mt-3 text-slate-500">
-          AI 数字人 + Agent 任务执行 · S0 里程碑 M0 联调演示
-        </p>
+        <p className="mt-3 text-slate-500">AI 数字人 + Agent 任务执行 · S1 用户认证演示</p>
       </header>
 
+      {/* 登录态卡片 */}
+      <section className="w-full rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        {authLoading ? (
+          <p className="text-slate-400">加载中…</p>
+        ) : me ? (
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="font-semibold">
+                {me.user.profile?.name ?? "医生"} {me.user.profile && <span className="ml-1 text-sm font-normal text-slate-500">{me.user.profile.title} · {me.user.profile.hospital}</span>}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {me.user.phone} · 积分 <b className="text-blue-600">{me.user.creditBalance}</b>
+                {me.user.profile && (
+                  <span className={`ml-3 rounded-full px-2 py-0.5 text-xs ${me.user.profile.verifyStatus === "APPROVED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                    {me.user.profile.verifyStatus === "APPROVED" ? "已认证" : "待审核"}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {!me.user.profile && (
+                <Link href="/onboarding" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                  完善资料
+                </Link>
+              )}
+              <button onClick={logout} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
+                退出
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <p className="text-slate-500">您还未登录</p>
+            <Link href="/login" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              手机号登录
+            </Link>
+          </div>
+        )}
+      </section>
+
+      {/* M0 双服务联调面板 */}
       <section className="w-full space-y-4">
         <h2 className="text-lg font-semibold">双服务健康检查</h2>
         <div className="grid grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-slate-500">Web 服务 (Next.js)</p>
-            <p className="mt-1 text-2xl font-semibold text-green-600">
-              {health.loading ? "…" : "OK"}
-            </p>
+            <p className="mt-1 text-2xl font-semibold text-green-600">OK</p>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-slate-500">AI 服务 (FastAPI)</p>
-            <p
-              className={`mt-1 text-2xl font-semibold ${
-                health.loading
-                  ? "text-slate-400"
-                  : aiOk
-                    ? "text-green-600"
-                    : "text-red-500"
-              }`}
-            >
+            <p className={`mt-1 text-2xl font-semibold ${health.loading ? "text-slate-400" : aiOk ? "text-green-600" : "text-red-500"}`}>
               {health.loading ? "…" : aiOk ? "OK" : "UNREACHABLE"}
             </p>
           </div>
         </div>
-        {aiOk && (
-          <p className="text-sm text-slate-500">
-            AI 服务版本：{(health.ai as { version: string }).version} ·
-            环境：{(health.ai as { env: string }).env}
-          </p>
-        )}
       </section>
 
       <section className="w-full space-y-4">
-        <h2 className="text-lg font-semibold">任务系统契约（packages/shared 联调）</h2>
+        <h2 className="text-lg font-semibold">任务系统契约（packages/shared）</h2>
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">
-            任务状态机：{Object.values(TaskStatus).length} 个状态 ·{" "}
-            {Object.values(TaskMode).length} 种模式
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             {Object.values(TaskStatus).map((s) => (
-              <span
-                key={s}
-                className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600"
-              >
+              <span key={s} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                 {s}
               </span>
             ))}
@@ -89,7 +126,7 @@ export default function Home() {
       </section>
 
       <footer className="text-xs text-slate-400">
-        开发总纲：docs/DEVELOPMENT-MASTER-PLAN.md · Sprint 0 / M0
+        开发总纲：docs/DEVELOPMENT-MASTER-PLAN.md · Sprint 1 / 用户认证
       </footer>
     </main>
   );
