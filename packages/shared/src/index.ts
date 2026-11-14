@@ -113,6 +113,27 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   [TaskStatus.FAILED]: "失败",
 };
 
+/** 合规审核结论（总纲 §5.1：AI 生成物必须经人工审核后才回传医生） */
+export enum ReviewStatus {
+  PENDING = "PENDING", // 待审核
+  APPROVED = "APPROVED", // 通过，回传医生
+  REJECTED = "REJECTED", // 驳回，失败退款
+}
+
+export const REVIEW_STATUS_LABEL: Record<string, string> = {
+  [ReviewStatus.PENDING]: "待审核",
+  [ReviewStatus.APPROVED]: "审核通过",
+  [ReviewStatus.REJECTED]: "审核驳回",
+};
+
+/** 审核台必检项（人工审核清单，前端展示 + 驳回意见提示） */
+export const REVIEW_CHECKLIST = [
+  "事实可溯源：文献类结论均带真实 PMID，且与原文一致",
+  "AI 标注：交付物已标注「AI 辅助生成，仅供参考」",
+  "医学免责：含医学免责声明，不构成诊疗建议",
+  "无夸大疗效 / 违规医疗建议 / 患者隐私信息",
+] as const;
+
 /** 注册赠送积分（新用户冷启动额度，创始人定的增长策略） */
 export const REGISTER_CREDIT_BONUS = 10000;
 

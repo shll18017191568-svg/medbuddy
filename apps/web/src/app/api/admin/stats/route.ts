@@ -7,7 +7,7 @@ export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "无权访问" }, { status: 403 });
 
-  const [userCount, verifiedCount, pendingCount, taskCount, statusGroups, consumed] =
+  const [userCount, verifiedCount, pendingCount, taskCount, statusGroups, consumed, pendingReview] =
     await Promise.all([
       prisma.user.count(),
       prisma.doctorProfile.count({ where: { verifyStatus: "APPROVED" } }),
@@ -15,6 +15,7 @@ export async function GET() {
       prisma.task.count(),
       prisma.task.groupBy({ by: ["status"], _count: { _all: true } }),
       prisma.creditLedger.aggregate({ where: { type: "CONSUME" }, _sum: { amount: true } }),
+      prisma.task.count({ where: { status: "reviewing" } }),
     ]);
 
   const statusMap: Record<string, number> = {};
@@ -25,6 +26,7 @@ export async function GET() {
     verifiedCount,
     pendingCount,
     taskCount,
+    pendingReview,
     statusMap,
     creditsConsumed: Math.abs(consumed._sum.amount ?? 0),
   });

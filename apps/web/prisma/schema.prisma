@@ -118,8 +118,16 @@ model Task {
   updatedAt   DateTime  @updatedAt
   startedAt   DateTime?
   deliveredAt DateTime?
+  // 合规审核台字段（进入 REVIEWING 前为 null）
+  reviewStatus String? // PENDING | APPROVED | REJECTED（packages/shared ReviewStatus）
+  reviewNote   String? // 审核意见（驳回必填，同步给提交医生）
+  reviewedAt   DateTime?
+  reviewerId   String? // 审核管理员
+  reviewerName String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([reviewStatus])
 
   @@index([userId, createdAt])
   @@index([status])

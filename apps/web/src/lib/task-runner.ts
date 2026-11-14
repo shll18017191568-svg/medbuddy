@@ -5,7 +5,7 @@
  * 注意：fire-and-forget 在 serverless 环境会被冻结，部署前需迁移到队列（S3 BullMQ）。
  */
 import { prisma } from "@/lib/prisma";
-import { TaskStatus, canTransition, TaskType } from "@medbuddy/shared";
+import { TaskStatus, canTransition, TaskType, ReviewStatus } from "@medbuddy/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
@@ -580,19 +580,12 @@ export function runTask(taskId: string) {
         await recordAvatarJob(taskId, task.userId, result as Record<string, unknown>);
       }
 
-      // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
-      await transition(taskId, TaskStatus.REVIEWING);
-      await sleep(500);
-
-      // 回传交付（总纲：结果定向回传提交医生）
+      // 交付物先落库，供合规审核台人工审核（审核通过后才回传医生）
       await prisma.task.update({
         where: { id: taskId },
-        data: {
-          status: TaskStatus.DELIVERED,
-          resultJson: JSON.stringify(result),
-          deliveredAt: new Date(),
-        },
+        data: { resultJson: JSON.stringify(result) },
       });
+      await transition(taskId, TaskStatus.REVIEWING, { reviewStatus: ReviewStatus.PENDING });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
 

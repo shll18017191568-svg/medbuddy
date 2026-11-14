@@ -24,6 +24,10 @@ type Task = {
   creditCost: number;
   resultJson: string | null;
   failReason: string | null;
+  reviewStatus: string | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  reviewerName: string | null;
   createdAt: string;
   startedAt: string | null;
   deliveredAt: string | null;
@@ -136,9 +140,21 @@ export default function TaskDetailPage() {
             );
           })}
         </div>
+        {task.status === TaskStatus.REVIEWING && (
+          <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+            交付物已生成，正在合规审核中；审核通过后自动回传，无需守候
+          </p>
+        )}
+        {task.status === TaskStatus.DELIVERED && task.reviewStatus === "APPROVED" && (
+          <p className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+            已通过合规审核{task.reviewerName ? `（审核人 ${task.reviewerName}` : ""}
+            {task.reviewedAt ? `，${new Date(task.reviewedAt).toLocaleString("zh-CN")}` : ""}
+            {task.reviewerName ? "）" : ""}
+          </p>
+        )}
         {task.status === TaskStatus.FAILED && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-            失败原因：{task.failReason ?? "未知"}（积分将自动退回——退款逻辑 S4 支付卡实现）
+            失败原因：{task.failReason ?? "未知"}（{task.creditCost} 积分已自动退回账户）
           </p>
         )}
       </section>
