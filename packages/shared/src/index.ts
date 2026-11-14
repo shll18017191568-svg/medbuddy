@@ -72,7 +72,7 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
   [TaskType.REFERENCE_FORMAT]: {
     label: "参考文献排版",
     price: 100,
-    description: "PMID 清单一键生成 9000+ 期刊格式引文",
+    description: "PMID 清单一键生成 GB/T 7714、Vancouver、APA 等格式并导出 BibTeX/RIS",
   },
   [TaskType.AVATAR_CHAT]: {
     label: "数字人对话",

@@ -136,6 +136,8 @@ export default function NewTaskPage() {
                   ? "输入综述主题，如：铁死亡在肿瘤免疫治疗中的作用（系统会自动检索真实文献并生成初稿）"
                   : type === TaskType.CHART
                   ? "先写需求，再用「数据：」粘贴 CSV（首行为表头），如：\n帮我做火山图\n数据：\ngene,log2FC,pvalue\nTP53,2.4,0.001"
+                : type === TaskType.REFERENCE_FORMAT
+                  ? "粘贴 PMID 列表，可注明格式，如：38453898 33268902 35025101（APA 格式）"
                   : "用大白话描述您的需求，如：帮我找铁死亡在肿瘤免疫中作用近 3 年的高质量综述，优先 Review，排除 Letter"
             }
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500"

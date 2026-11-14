@@ -206,6 +206,28 @@ export default function TaskDetailPage() {
               </div>
             </div>
           )}
+          {(typeof result.bibtex === "string" || typeof result.ris === "string") && (
+            <div className="mt-3 flex gap-2">
+              {typeof result.bibtex === "string" && result.bibtex.length > 0 && (
+                <a
+                  href={`data:application/x-bibtex;charset=utf-8,${encodeURIComponent(result.bibtex)}`}
+                  download="references.bib"
+                  className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  下载 BibTeX
+                </a>
+              )}
+              {typeof result.ris === "string" && result.ris.length > 0 && (
+                <a
+                  href={`data:application/x-research-info-systems;charset=utf-8,${encodeURIComponent(result.ris)}`}
+                  download="references.ris"
+                  className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  下载 RIS
+                </a>
+              )}
+            </div>
+          )}
           {typeof result.query === "string" && (
             <p className="mt-2 rounded-md bg-white/70 px-3 py-2 text-xs text-slate-500">
               检索式：<span className="font-mono">{result.query}</span>

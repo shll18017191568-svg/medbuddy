@@ -23,6 +23,7 @@ from app.services.design import build_design
 from app.services.digest import digest_pmid
 from app.services.llm import LLMError, complete, resolve_provider
 from app.services.pubmed import search_literature
+from app.services.references import build_references
 from app.services.review import build_review
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
@@ -175,6 +176,23 @@ async def clinical_design(req: ClinicalDesignRequest) -> dict:
     """技能 4：临床方案设计（PICO + 国自然结构 + 伦理）。"""
     try:
         return await build_clinical(req.topic, pmid=req.pmid)
+    except ValueError as err:
+        return {"error": str(err)}
+    except httpx.HTTPError as err:
+        return {"error": f"PubMed 访问失败：{type(err).__name__}"}
+
+
+class ReferencesRequest(BaseModel):
+    text: str = Field(default="", max_length=5000)
+    pmids: list[str] | None = None
+    style: str | None = Field(default=None, max_length=20)
+
+
+@router.post("/references")
+async def references(req: ReferencesRequest) -> dict:
+    """技能 9：参考文献管理（PMID → 多格式引文 + BibTeX/RIS）。"""
+    try:
+        return await build_references(req.text, req.pmids, req.style)
     except ValueError as err:
         return {"error": str(err)}
     except httpx.HTTPError as err:

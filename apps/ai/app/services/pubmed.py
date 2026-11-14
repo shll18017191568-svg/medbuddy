@@ -116,7 +116,8 @@ async def _esummary(client: httpx.AsyncClient, pmids: list[str]) -> list[Literat
     items: list[LiteratureItem] = []
     for pmid in pmids:  # 保持 esearch 的相关性排序
         doc = result.get(pmid)
-        if not doc:
+        # 无效 PMID 时 esummary 返回空壳记录（字段全空但结构存在），必须按标题过滤
+        if not doc or not (doc.get("title") or "").strip():
             continue
 
         authors = [a.get("name", "") for a in doc.get("authors", []) if a.get("name")]
@@ -166,6 +167,15 @@ async def search_literature(
         "years": years,
         "items": [item.__dict__ for item in items],
     }
+
+
+async def fetch_items(pmids: list[str]) -> list[LiteratureItem]:
+    """批量取题录（每批 50 条，供参考文献管理使用）。"""
+    items: list[LiteratureItem] = []
+    async with httpx.AsyncClient(timeout=settings.pubmed_timeout) as client:
+        for i in range(0, len(pmids), 50):
+            items.extend(await _esummary(client, pmids[i : i + 50]))
+    return items
 
 
 async def fetch_article(pmid: str) -> tuple[LiteratureItem | None, str]:

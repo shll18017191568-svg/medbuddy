@@ -283,6 +283,45 @@ async function runClinicalDesign(prompt: string, title: string) {
   };
 }
 
+/** 技能 9：参考文献管理（PMID → 多格式引文 + BibTeX/RIS） */
+async function runReferences(prompt: string, title: string) {
+  const lower = prompt.toLowerCase();
+  const style = ["apa", "ama", "ieee", "nature", "vancouver"].find((s) => lower.includes(s)) ?? "gb7714";
+
+  const res = await fetch(`${AI_URL}/api/skills/references`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: prompt.slice(0, 5000), style }),
+  });
+
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    style_label?: string;
+    count?: number;
+    markdown?: string;
+    text?: string;
+    bibtex?: string;
+    ris?: string;
+    missing?: string[];
+    warnings?: string[];
+  } | null;
+
+  if (!res.ok || !data) throw new Error(`排版服务返回 ${res.status}`);
+  if (data.error) throw new Error(data.error);
+
+  return {
+    kind: "references",
+    summary: `「${title}」已生成 ${String(data.count ?? 0)} 条 ${data.style_label ?? ""} 格式引文`,
+    markdown: data.markdown ?? "",
+    text: data.text ?? "",
+    bibtex: data.bibtex ?? "",
+    ris: data.ris ?? "",
+    count: data.count ?? 0,
+    missing: data.missing ?? [],
+    warnings: data.warnings ?? [],
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -314,7 +353,9 @@ export function runTask(taskId: string) {
                   ? await runExperimentDesign(input.prompt, task.title)
                   : task.type === TaskType.CLINICAL_DESIGN
                     ? await runClinicalDesign(input.prompt, task.title)
-                    : (await sleep(1200), mockDeliverable(task.type, task.title));
+                    : task.type === TaskType.REFERENCE_FORMAT
+                      ? await runReferences(input.prompt, task.title)
+                      : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);
