@@ -357,6 +357,63 @@ async function runContentGen(prompt: string, title: string) {
   };
 }
 
+/** 技能 7：文风改写（原文 + 目标文风 → 保真改写稿） */
+async function runStyleRewrite(prompt: string, title: string) {
+  const lower = prompt.toLowerCase();
+  const styleMap: [string, string[]][] = [
+    ["academic", ["学术", "论文", "期刊", "sci"]],
+    ["patient", ["患者", "家属", "患教", "沟通"]],
+    ["social", ["小红书", "抖音", "短视频", "新媒体", "朋友圈"]],
+    ["official", ["公文", "通知", "请示", "院办", "制度"]],
+    ["report", ["汇报", "述职", "季度", "工作总结", "ppt"]],
+    ["popular", ["科普", "通俗", "大众"]],
+  ];
+  // 只认需求里明确点名的文风，避免原文里的「患者」干扰判断
+  const style = styleMap.find(([, keys]) => keys.some((k) => lower.includes(k)))?.[0];
+  const length = ["精简", "压缩", "缩短", "一半"].some((k) => lower.includes(k))
+    ? "精简（约为原文 60% 篇幅）"
+    : ["扩写", "详细", "展开"].some((k) => lower.includes(k))
+      ? "扩写（约为原文 130% 篇幅）"
+      : undefined;
+
+  const res = await fetch(`${AI_URL}/api/skills/style-rewrite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: prompt.slice(0, 8000), style, length }),
+  });
+
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    title?: string;
+    style_label?: string;
+    rewritten?: string;
+    markdown?: string;
+    changes?: unknown[];
+    stats?: Record<string, unknown>;
+    warnings?: string[];
+  } | null;
+
+  if (!res.ok || !data) throw new Error(`改写服务返回 ${res.status}`);
+  if (data.error) throw new Error(data.error);
+
+  const stats = data.stats ?? {};
+  return {
+    kind: "style_rewrite",
+    summary: `「${data.title ?? title}」已改写为${data.style_label ?? "目标"}文风：${String(
+      stats.original_chars ?? 0,
+    )} 字 → ${String(stats.rewritten_chars ?? 0)} 字，数值保留 ${String(
+      stats.numbers_kept ?? 0,
+    )}/${String(stats.numbers_total ?? 0)}`,
+    title: data.title ?? title,
+    style_label: data.style_label ?? "",
+    rewritten: data.rewritten ?? "",
+    markdown: data.markdown ?? "",
+    changes: data.changes ?? [],
+    stats,
+    warnings: data.warnings ?? [],
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -392,7 +449,9 @@ export function runTask(taskId: string) {
                       ? await runReferences(input.prompt, task.title)
                       : task.type === TaskType.CONTENT_GEN
                         ? await runContentGen(input.prompt, task.title)
-                        : (await sleep(1200), mockDeliverable(task.type, task.title));
+                        : task.type === TaskType.STYLE_REWRITE
+                          ? await runStyleRewrite(input.prompt, task.title)
+                          : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);

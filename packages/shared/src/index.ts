@@ -35,6 +35,7 @@ export enum TaskType {
   AVATAR_CHAT = "avatar_chat", // 数字人对话
   AVATAR_CLONE = "avatar_clone", // 数字人定制
   CONTENT_GEN = "content_gen", // 内容工厂
+  STYLE_REWRITE = "style_rewrite", // 技能7：文风改写
 }
 
 /** 任务类型元数据：显示名 + 单次积分价格（前端展示与后端扣费共用此表） */
@@ -88,6 +89,11 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
     label: "内容生成",
     price: 200,
     description: "科普图文/短视频脚本/汇报 PPT 生成",
+  },
+  [TaskType.STYLE_REWRITE]: {
+    label: "文风改写",
+    price: 200,
+    description: "同一份医学事实，改写成论文/科普/患者沟通/新媒体等不同文风，数值不得丢",
   },
 };
 

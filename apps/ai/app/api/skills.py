@@ -26,6 +26,7 @@ from app.services.llm import LLMError, complete, resolve_provider
 from app.services.pubmed import search_literature
 from app.services.references import build_references
 from app.services.review import build_review
+from app.services.style import build_rewrite
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
@@ -218,6 +219,24 @@ async def content(req: ContentRequest) -> dict:
             platform=req.platform,
             audience=req.audience,
             tone=req.tone,
+        )
+    except ValueError as err:
+        return {"error": str(err)}
+
+
+class StyleRewriteRequest(BaseModel):
+    text: str = Field(min_length=50, max_length=8000)
+    style: str | None = Field(default=None, max_length=20)
+    audience: str | None = Field(default=None, max_length=20)
+    length: str | None = Field(default=None, max_length=40)
+
+
+@router.post("/style-rewrite")
+async def style_rewrite(req: StyleRewriteRequest) -> dict:
+    """技能 7：文风改写（事实保真 + 数值校验）。"""
+    try:
+        return await build_rewrite(
+            req.text, style=req.style, audience=req.audience, length=req.length
         )
     except ValueError as err:
         return {"error": str(err)}

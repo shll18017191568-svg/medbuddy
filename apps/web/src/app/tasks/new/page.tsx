@@ -138,6 +138,8 @@ export default function NewTaskPage() {
                   ? "先写需求，再用「数据：」粘贴 CSV（首行为表头），如：\n帮我做火山图\n数据：\ngene,log2FC,pvalue\nTP53,2.4,0.001"
                 : type === TaskType.CONTENT_GEN
                   ? "输入主题并注明形式，如：高血压患者夏季用药注意事项（短视频脚本，发抖音）"
+                : type === TaskType.STYLE_REWRITE
+                  ? "粘贴原文（≥50 字），并说明改成什么文风，如：以下这段改成患者能看懂的版本：……"
                   : type === TaskType.REFERENCE_FORMAT
                   ? "粘贴 PMID 列表，可注明格式，如：38453898 33268902 35025101（APA 格式）"
                   : "用大白话描述您的需求，如：帮我找铁死亡在肿瘤免疫中作用近 3 年的高质量综述，优先 Review，排除 Letter"
