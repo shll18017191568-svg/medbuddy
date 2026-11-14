@@ -167,6 +167,26 @@ export function applyMemberDiscount(price: number, level?: string | null): numbe
   return Math.ceil((price * plan.discount) / 10) * 10;
 }
 
+/** 积分充值包（价格单位为元；credits 含赠送） */
+export interface RechargePackage {
+  id: string;
+  name: string;
+  priceYuan: number;
+  credits: number;
+  bonusRate: number; // 赠送比例，0 表示无赠送
+}
+
+export const RECHARGE_PACKAGES: RechargePackage[] = [
+  { id: "starter", name: "体验包", priceYuan: 10, credits: 1000, bonusRate: 0 },
+  { id: "standard", name: "标准包", priceYuan: 50, credits: 5500, bonusRate: 0.1 },
+  { id: "pro", name: "专业包", priceYuan: 100, credits: 12000, bonusRate: 0.2 },
+  { id: "bulk", name: "批量包", priceYuan: 300, credits: 40000, bonusRate: 1 / 3 },
+];
+
+export function findRechargePackage(id: string): RechargePackage | undefined {
+  return RECHARGE_PACKAGES.find((p) => p.id === id);
+}
+
 
 /** 状态流转合法性校验（AI 服务回写状态时同样遵守） */
 export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {

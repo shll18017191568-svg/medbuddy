@@ -122,6 +122,12 @@ export default function Home() {
                 >
                   会员中心
                 </Link>
+                <Link
+                  href="/recharge"
+                  className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  充值
+                </Link>
                 {!me.user.profile && (
                   <Link href="/onboarding" className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
                     完善资料

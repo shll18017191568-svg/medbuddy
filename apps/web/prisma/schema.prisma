@@ -27,6 +27,21 @@ model User {
   tasks   Task[]
   ledgers CreditLedger[]
   checkIns CheckIn[]
+  rechargeOrders RechargeOrder[]
+}
+
+/// 积分充值订单（支付接入前为测试支付；支付回调后改为 PAID）
+model RechargeOrder {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  packageId String
+  priceYuan Int
+  credits   Int
+  status    String   @default("MOCK_PAID") // MOCK_PAID | PAID | REFUNDED
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 /// 医生认证资料（S1 仅采集，人工审核在运营后台补齐）
