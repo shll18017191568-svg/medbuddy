@@ -3,7 +3,8 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runTask } from "@/lib/task-runner";
-import { TASK_TYPE_META, TaskMode, TaskStatus, TaskType } from "@medbuddy/shared";
+import { effectiveLevel } from "@/lib/membership";
+import { TASK_TYPE_META, TaskMode, TaskStatus, TaskType, applyMemberDiscount } from "@medbuddy/shared";
 
 const bodySchema = z.object({
   type: z.nativeEnum(TaskType),
@@ -25,7 +26,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, { status: 400 });
   }
   const { type, mode, title, prompt } = parsed.data;
-  const price = TASK_TYPE_META[type].price;
+  // 会员折扣在服务端统一计算，前端展示价格仅供参考
+  const level = effectiveLevel(user.memberLevel, user.memberExpireAt);
+  const basePrice = TASK_TYPE_META[type].price;
+  const price = applyMemberDiscount(basePrice, level);
 
   try {
     const task = await prisma.$transaction(async (tx) => {
@@ -53,7 +57,10 @@ export async function POST(req: Request) {
           type: "CONSUME",
           amount: -price,
           balanceAfter,
-          note: `任务扣费：${TASK_TYPE_META[type].label}`,
+          note:
+            price === basePrice
+              ? `任务扣费：${TASK_TYPE_META[type].label}`
+              : `任务扣费：${TASK_TYPE_META[type].label}（会员价 ${price}/${basePrice}）`,
         },
       });
       await tx.creditAccount.update({

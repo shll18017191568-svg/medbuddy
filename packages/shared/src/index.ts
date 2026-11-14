@@ -107,6 +107,67 @@ export const REGISTER_CREDIT_BONUS = 10000;
 /** 每日签到奖励积分 */
 export const CHECKIN_REWARD = 100;
 
+/** 会员等级（免费 / 专业 / 旗舰） */
+export enum MemberLevel {
+  FREE = "free",
+  PRO = "pro",
+  FLAGSHIP = "flagship",
+}
+
+export interface MemberPlan {
+  level: MemberLevel;
+  name: string;
+  priceMonthly: number; // 元/月（0 表示免费）
+  discount: number; // 任务积分折扣系数，1 表示不打折
+  dailyCheckinBonus: number; // 每日签到积分
+  monthlyCredits: number; // 开通/续费即赠积分
+  benefits: string[];
+}
+
+export const MEMBER_PLANS: Record<MemberLevel, MemberPlan> = {
+  [MemberLevel.FREE]: {
+    level: MemberLevel.FREE,
+    name: "免费版",
+    priceMonthly: 0,
+    discount: 1,
+    dailyCheckinBonus: CHECKIN_REWARD,
+    monthlyCredits: 0,
+    benefits: ["全部科研技能按标准积分使用", "每日签到 +100 积分", "注册赠送 10000 积分"],
+  },
+  [MemberLevel.PRO]: {
+    level: MemberLevel.PRO,
+    name: "专业版",
+    priceMonthly: 99,
+    discount: 0.8,
+    dailyCheckinBonus: 150,
+    monthlyCredits: 3000,
+    benefits: ["所有任务积分消耗 8 折", "每日签到 +150 积分", "每月赠送 3000 积分", "优先任务队列"],
+  },
+  [MemberLevel.FLAGSHIP]: {
+    level: MemberLevel.FLAGSHIP,
+    name: "旗舰版",
+    priceMonthly: 299,
+    discount: 0.7,
+    dailyCheckinBonus: 200,
+    monthlyCredits: 10000,
+    benefits: ["所有任务积分消耗 7 折", "每日签到 +200 积分", "每月赠送 10000 积分", "专属专家 Agent（即将上线）"],
+  },
+};
+
+/** 非法或过期等级一律按免费版处理 */
+export function getMemberPlan(level?: string | null): MemberPlan {
+  const key = (level ?? "").toLowerCase() as MemberLevel;
+  return MEMBER_PLANS[key] ?? MEMBER_PLANS[MemberLevel.FREE];
+}
+
+/** 会员折扣后的实际扣费（向上取整到 10 的整数，避免零头） */
+export function applyMemberDiscount(price: number, level?: string | null): number {
+  const plan = getMemberPlan(level);
+  if (plan.discount >= 1) return price;
+  return Math.ceil((price * plan.discount) / 10) * 10;
+}
+
+
 /** 状态流转合法性校验（AI 服务回写状态时同样遵守） */
 export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.DRAFT]: [TaskStatus.QUEUED, TaskStatus.FAILED],

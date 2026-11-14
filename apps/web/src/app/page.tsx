@@ -12,6 +12,7 @@ type Me = {
     role: string;
     profile: { name: string; hospital: string; department: string; title: string; verifyStatus: string } | null;
     creditBalance: number;
+    membership: { level: string; name: string; expireAt: string | null; expired: boolean } | null;
   };
 };
 
@@ -84,6 +85,11 @@ export default function Home() {
                 </p>
                 <p className="mt-1 text-sm text-slate-500">
                   {me.user.phone} · 积分 <b className="text-blue-600">{me.user.creditBalance}</b>
+                  {me.user.membership && me.user.membership.level !== "free" && (
+                    <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                      {me.user.membership.name}
+                    </span>
+                  )}
                   {me.user.profile && (
                     <span className={`ml-3 rounded-full px-2 py-0.5 text-xs ${me.user.profile.verifyStatus === "APPROVED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
                       {me.user.profile.verifyStatus === "APPROVED" ? "已认证" : "待审核"}
@@ -109,6 +115,12 @@ export default function Home() {
                   className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
                 >
                   数据分析
+                </Link>
+                <Link
+                  href="/membership"
+                  className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  会员中心
                 </Link>
                 {!me.user.profile && (
                   <Link href="/onboarding" className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">

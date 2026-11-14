@@ -17,6 +17,8 @@ model User {
   phone     String   @unique // 登录唯一凭证
   role      String   @default("DOCTOR") // DOCTOR | ADMIN
   status    String   @default("ACTIVE") // ACTIVE | DISABLED
+  memberLevel    String    @default("free") // free | pro | flagship
+  memberExpireAt DateTime? // 为空或已过期按免费版处理
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

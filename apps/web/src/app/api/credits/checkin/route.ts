@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { CHECKIN_REWARD } from "@medbuddy/shared";
+import { effectiveLevel } from "@/lib/membership";
+import { getMemberPlan } from "@medbuddy/shared";
 
 /** 当前中国时区自然日（YYYY-MM-DD） */
 function todayCN(): string {
@@ -41,18 +42,23 @@ export async function GET() {
     calcStreak(user.id),
   ]);
 
+  const plan = getMemberPlan(effectiveLevel(user.memberLevel, user.memberExpireAt));
+
   return NextResponse.json({
     checkedIn: !!checkedIn,
     streak,
-    reward: CHECKIN_REWARD,
+    reward: plan.dailyCheckinBonus,
     balance: user.credits?.balance ?? 0,
   });
 }
 
-/** 每日签到：+100 积分（唯一约束防重，流水留痕） */
+/** 每日签到：按会员等级发放积分（唯一约束防重，流水留痕） */
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+
+  const plan = getMemberPlan(effectiveLevel(user.memberLevel, user.memberExpireAt));
+  const reward = plan.dailyCheckinBonus;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -60,25 +66,25 @@ export async function POST() {
       await tx.checkIn.create({ data: { userId: user.id, date: todayCN() } });
 
       const account = await tx.creditAccount.findUniqueOrThrow({ where: { userId: user.id } });
-      const balanceAfter = account.balance + CHECKIN_REWARD;
+      const balanceAfter = account.balance + reward;
       await tx.creditAccount.update({
         where: { id: account.id },
-        data: { balance: balanceAfter, totalEarn: { increment: CHECKIN_REWARD } },
+        data: { balance: balanceAfter, totalEarn: { increment: reward } },
       });
       await tx.creditLedger.create({
         data: {
           userId: user.id,
           type: "BONUS",
-          amount: CHECKIN_REWARD,
+          amount: reward,
           balanceAfter,
-          note: "每日签到",
+          note: plan.level === "free" ? "每日签到" : `每日签到（${plan.name}）`,
         },
       });
       return balanceAfter;
     });
 
     const streak = await calcStreak(user.id);
-    return NextResponse.json({ ok: true, reward: CHECKIN_REWARD, balance: result, streak });
+    return NextResponse.json({ ok: true, reward, balance: result, streak });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return NextResponse.json({ error: "今天已经签到过啦，明天再来" }, { status: 409 });
