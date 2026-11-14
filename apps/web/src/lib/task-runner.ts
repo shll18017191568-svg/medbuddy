@@ -204,6 +204,46 @@ async function runReviewDraft(prompt: string, title: string) {
   };
 }
 
+/** 技能 3：实验设计（可选核心文献 PMID） */
+async function runExperimentDesign(prompt: string, title: string) {
+  const matched = prompt.match(/\b\d{5,9}\b/);
+  const res = await fetch(`${AI_URL}/api/skills/experiment-design`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      topic: prompt.trim().slice(0, 500),
+      pmid: matched?.[0],
+    }),
+  });
+
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    title?: string;
+    markdown?: string;
+    design?: Record<string, unknown>;
+    seed?: { pmid?: string; title?: string } | null;
+    stats?: Record<string, unknown>;
+    warnings?: string[];
+  } | null;
+
+  if (!res.ok || !data) throw new Error(`方案服务返回 ${res.status}`);
+  if (data.error) throw new Error(data.error);
+
+  const stats = data.stats ?? {};
+  return {
+    kind: "experiment_design",
+    summary: `「${data.title ?? title}」实验方案已生成：${String(stats.experiments ?? 0)} 个主实验，${String(
+      stats.sub_experiments ?? 0,
+    )} 个子实验`,
+    title: data.title ?? title,
+    markdown: data.markdown ?? "",
+    design: data.design ?? {},
+    seed: data.seed ?? null,
+    stats,
+    warnings: data.warnings ?? [],
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -231,7 +271,9 @@ export function runTask(taskId: string) {
               ? await runVisualize(input.prompt, task.title)
               : task.type === TaskType.REVIEW_DRAFT
                 ? await runReviewDraft(input.prompt, task.title)
-                : (await sleep(1200), mockDeliverable(task.type, task.title));
+                : task.type === TaskType.EXPERIMENT_DESIGN
+                  ? await runExperimentDesign(input.prompt, task.title)
+                  : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);

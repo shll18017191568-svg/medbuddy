@@ -128,7 +128,9 @@ export default function NewTaskPage() {
             placeholder={
               type === TaskType.LITERATURE_DIGEST
                 ? "输入要解读的文献 PMID（5-9 位数字），如：38453898"
-                : type === TaskType.REVIEW_DRAFT
+                : type === TaskType.EXPERIMENT_DESIGN
+                  ? "输入课题方向，可附核心文献 PMID，如：铁死亡调控肿瘤免疫微环境的机制研究 38453898"
+                  : type === TaskType.REVIEW_DRAFT
                   ? "输入综述主题，如：铁死亡在肿瘤免疫治疗中的作用（系统会自动检索真实文献并生成初稿）"
                   : type === TaskType.CHART
                   ? "先写需求，再用「数据：」粘贴 CSV（首行为表头），如：\n帮我做火山图\n数据：\ngene,log2FC,pvalue\nTP53,2.4,0.001"

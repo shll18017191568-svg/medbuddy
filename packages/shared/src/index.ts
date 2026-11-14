@@ -29,6 +29,7 @@ export enum TaskType {
   LITERATURE_DIGEST = "literature_digest", // 技能2：文献解读
   CHART = "chart", // 技能8：数据可视化
   REVIEW_DRAFT = "review_draft", // 技能5：综述写作
+  EXPERIMENT_DESIGN = "experiment_design", // 技能3：实验设计
   REFERENCE_FORMAT = "reference_format", // 技能9：参考文献管理
   AVATAR_CHAT = "avatar_chat", // 数字人对话
   AVATAR_CLONE = "avatar_clone", // 数字人定制
@@ -56,6 +57,11 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
     label: "综述写作",
     price: 800,
     description: "输入主题，自动建库检索并生成带真实 PMID 引用的综述初稿",
+  },
+  [TaskType.EXPERIMENT_DESIGN]: {
+    label: "实验设计",
+    price: 600,
+    description: "以核心文献或课题为起点，产出可开题的分组与实验方案",
   },
   [TaskType.REFERENCE_FORMAT]: {
     label: "参考文献排版",

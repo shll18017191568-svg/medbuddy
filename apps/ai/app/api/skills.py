@@ -18,6 +18,7 @@ from app.services.charts import (
     load_table,
     render_chart,
 )
+from app.services.design import build_design
 from app.services.digest import digest_pmid
 from app.services.llm import LLMError, complete, resolve_provider
 from app.services.pubmed import search_literature
@@ -145,3 +146,19 @@ async def review_draft(req: ReviewDraftRequest) -> dict:
         return {"error": str(err)}
     except httpx.HTTPError as err:
         return {"error": f"文献检索失败：{type(err).__name__}"}
+
+
+class ExperimentDesignRequest(BaseModel):
+    topic: str = Field(min_length=2, max_length=500)
+    pmid: str | None = Field(default=None, pattern=r"^\d{1,9}$")
+
+
+@router.post("/experiment-design")
+async def experiment_design(req: ExperimentDesignRequest) -> dict:
+    """技能 3：实验设计（核心文献/课题 → 可开题方案）。"""
+    try:
+        return await build_design(req.topic, pmid=req.pmid)
+    except ValueError as err:
+        return {"error": str(err)}
+    except httpx.HTTPError as err:
+        return {"error": f"PubMed 访问失败：{type(err).__name__}"}
