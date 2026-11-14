@@ -6,6 +6,7 @@ S0 里程碑 M0：健康检查跑通，与 Web 服务联调。
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.avatar import router as avatar_router
 from app.api.llm import router as llm_router
 from app.api.skills import router as skills_router
 from app.core.config import settings
@@ -29,6 +30,8 @@ app.add_middleware(
 app.include_router(llm_router)
 # S2：医学科研技能（文献检索等）
 app.include_router(skills_router)
+# S3：数字人（播报视频 / 形象声音克隆）
+app.include_router(avatar_router)
 
 
 @app.get("/api/health")

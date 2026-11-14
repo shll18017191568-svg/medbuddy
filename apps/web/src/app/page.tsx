@@ -105,6 +105,12 @@ export default function Home() {
                   数字人对话
                 </Link>
                 <Link
+                  href="/avatar"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  数字人视频
+                </Link>
+                <Link
                   href="/tasks"
                   className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
                 >

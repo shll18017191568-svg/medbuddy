@@ -33,7 +33,8 @@ export enum TaskType {
   CLINICAL_DESIGN = "clinical_design", // 技能4：临床方案设计
   REFERENCE_FORMAT = "reference_format", // 技能9：参考文献管理
   AVATAR_CHAT = "avatar_chat", // 数字人对话
-  AVATAR_CLONE = "avatar_clone", // 数字人定制
+  AVATAR_CLONE = "avatar_clone", // 数字人定制（形象/声音克隆）
+  AVATAR_VIDEO = "avatar_video", // 数字人播报视频
   CONTENT_GEN = "content_gen", // 内容工厂
   STYLE_REWRITE = "style_rewrite", // 技能7：文风改写
 }
@@ -83,7 +84,12 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
   [TaskType.AVATAR_CLONE]: {
     label: "数字人定制",
     price: 2000,
-    description: "形象/声音克隆定制，交付专属数字人",
+    description: "形象/声音克隆定制，交付专属数字人（需本人授权）",
+  },
+  [TaskType.AVATAR_VIDEO]: {
+    label: "数字人播报",
+    price: 800,
+    description: "输入主题或稿件，生成带字幕的数字人口播视频脚本与成片任务单",
   },
   [TaskType.CONTENT_GEN]: {
     label: "内容生成",
@@ -192,6 +198,41 @@ export const RECHARGE_PACKAGES: RechargePackage[] = [
 export function findRechargePackage(id: string): RechargePackage | undefined {
   return RECHARGE_PACKAGES.find((p) => p.id === id);
 }
+
+/** 数字人音色（id 与 AI 服务 avatar.py 的音色表保持一致） */
+export const AVATAR_VOICES = [
+  { id: "warm_female", label: "温暖女声 · 科普讲解" },
+  { id: "steady_male", label: "稳重男声 · 专家播报" },
+  { id: "youth_female", label: "清亮女声 · 新媒体" },
+  { id: "senior_male", label: "资深男声 · 学术汇报" },
+] as const;
+
+/** 数字人视频画幅 */
+export const AVATAR_ASPECTS = [
+  { id: "portrait", label: "竖屏 9:16 · 抖音/视频号", size: "1080x1920" },
+  { id: "landscape", label: "横屏 16:9 · 公众号/会议", size: "1920x1080" },
+] as const;
+
+/** 数字人克隆类型 */
+export const AVATAR_CLONE_TYPES = [
+  { id: "appearance", label: "形象克隆", description: "上传 3-5 分钟真人出镜视频，复刻外貌与动作" },
+  { id: "voice", label: "声音克隆", description: "上传 1-2 分钟清晰人声素材，复刻音色与语气" },
+] as const;
+
+/** 数字人供应商展示名（一期第三方 API，双供应商备份） */
+export const AVATAR_PROVIDER_LABELS: Record<string, string> = {
+  zhiying: "腾讯智影",
+  silicon: "硅基智能",
+  mock: "演示模式",
+};
+
+/** 数字人成片任务状态 */
+export const AVATAR_JOB_STATUS_LABEL: Record<string, string> = {
+  SUBMITTED: "已提交",
+  PROCESSING: "合成中",
+  COMPLETED: "已生成",
+  FAILED: "失败",
+};
 
 
 /** 状态流转合法性校验（AI 服务回写状态时同样遵守） */

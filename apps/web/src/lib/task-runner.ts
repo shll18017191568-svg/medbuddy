@@ -414,6 +414,124 @@ async function runStyleRewrite(prompt: string, title: string) {
   };
 }
 
+/** 数字人播报视频（播报稿 + 分镜 + 第三方供应商合成任务单） */
+async function runAvatarVideo(prompt: string, title: string) {
+  const aspect = ["横屏", "16:9", "会议", "公众号"].some((k) => prompt.includes(k))
+    ? "landscape"
+    : undefined;
+  const matched = prompt.match(/(\d{2,3})\s*秒/);
+  const duration = matched ? Math.max(20, Math.min(Number(matched[1]), 180)) : undefined;
+
+  const res = await fetch(`${AI_URL}/api/avatar/video`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic: prompt.slice(0, 3000), aspect, duration }),
+  });
+
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    title?: string;
+    narration?: string;
+    shots?: unknown[];
+    total_seconds?: number;
+    voice_label?: string;
+    aspect_label?: string;
+    provider_label?: string;
+    job_id?: string;
+    status?: string;
+    video_url?: string;
+    compliance_notes?: string[];
+    stats?: Record<string, unknown>;
+    warnings?: string[];
+  } | null;
+
+  if (!res.ok || !data) throw new Error(`数字人服务返回 ${res.status}`);
+  if (data.error) throw new Error(data.error);
+
+  const stats = data.stats ?? {};
+  return {
+    kind: "avatar_video",
+    summary: `「${data.title ?? title}」数字人播报任务已生成：${String(
+      stats.total_seconds ?? data.total_seconds ?? 0,
+    )} 秒 · ${String(stats.shots ?? 0)} 个分镜 · ${data.provider_label ?? "未知供应商"}`,
+    title: data.title ?? title,
+    narration: data.narration ?? "",
+    shots: data.shots ?? [],
+    total_seconds: data.total_seconds ?? 0,
+    voice_label: data.voice_label ?? "",
+    aspect_label: data.aspect_label ?? "",
+    provider_label: data.provider_label ?? "",
+    job_id: data.job_id ?? "",
+    job_status: data.status ?? "SUBMITTED",
+    video_url: data.video_url ?? "",
+    compliance_notes: data.compliance_notes ?? [],
+    stats,
+    warnings: data.warnings ?? [],
+  };
+}
+
+/** 数字人形象/声音克隆任务单（材料清单 + 授权核验） */
+async function runAvatarClone(prompt: string, title: string) {
+  const res = await fetch(`${AI_URL}/api/avatar/clone`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes: prompt.slice(0, 500), display_name: title.slice(0, 20) }),
+  });
+
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    clone_type?: string;
+    type_label?: string;
+    provider?: string;
+    provider_label?: string;
+    job_id?: string;
+    status?: string;
+    materials?: string[];
+    warnings?: string[];
+  } | null;
+
+  if (!res.ok || !data) throw new Error(`数字人服务返回 ${res.status}`);
+  if (data.error) throw new Error(data.error);
+
+  return {
+    kind: "avatar_clone",
+    summary: `「${title}」${data.type_label ?? "数字人克隆"}任务已提交：${data.provider_label ?? ""} · 任务单 ${data.job_id ?? "-"}`,
+    clone_type: data.clone_type ?? "appearance",
+    type_label: data.type_label ?? "形象克隆",
+    provider: data.provider ?? "",
+    provider_label: data.provider_label ?? "",
+    job_id: data.job_id ?? "",
+    job_status: data.status ?? "SUBMITTED",
+    materials: data.materials ?? [],
+    warnings: data.warnings ?? [],
+  };
+}
+
+/** 数字人任务单落库：供应商异步合成，凭单号追踪进度 */
+async function recordAvatarJob(
+  taskId: string,
+  userId: string,
+  result: Record<string, unknown>,
+) {
+  const kind = result.kind === "avatar_clone" ? "CLONE" : "VIDEO";
+  await prisma.avatarJob.create({
+    data: {
+      userId,
+      taskId,
+      kind,
+      provider: String(result.provider ?? "mock"),
+      vendorJobId: String(result.job_id ?? ""),
+      status: String(result.job_status ?? result.status ?? "SUBMITTED"),
+      paramsJson: JSON.stringify({
+        title: result.title ?? "",
+        total_seconds: result.total_seconds ?? null,
+        clone_type: result.clone_type ?? null,
+      }),
+      resultJson: JSON.stringify(result),
+    },
+  });
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -451,7 +569,16 @@ export function runTask(taskId: string) {
                         ? await runContentGen(input.prompt, task.title)
                         : task.type === TaskType.STYLE_REWRITE
                           ? await runStyleRewrite(input.prompt, task.title)
-                          : (await sleep(1200), mockDeliverable(task.type, task.title));
+                          : task.type === TaskType.AVATAR_VIDEO
+                            ? await runAvatarVideo(input.prompt, task.title)
+                            : task.type === TaskType.AVATAR_CLONE
+                              ? await runAvatarClone(input.prompt, task.title)
+                              : (await sleep(1200), mockDeliverable(task.type, task.title));
+
+      // 数字人任务单落库（供应商异步合成，后续凭单号追踪）
+      if (result.kind === "avatar_video" || result.kind === "avatar_clone") {
+        await recordAvatarJob(taskId, task.userId, result as Record<string, unknown>);
+      }
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);

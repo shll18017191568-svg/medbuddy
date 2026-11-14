@@ -28,6 +28,26 @@ model User {
   ledgers CreditLedger[]
   checkIns CheckIn[]
   rechargeOrders RechargeOrder[]
+  avatarJobs AvatarJob[]
+}
+
+/// 数字人任务单（一期第三方 API 异步合成，凭供应商单号追踪进度）
+model AvatarJob {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId      String? // 关联任务单
+  kind        String // CLONE | VIDEO
+  provider    String // zhiying | silicon | mock
+  vendorJobId String? // 供应商返回的任务单号
+  status      String   @default("SUBMITTED") // SUBMITTED | PROCESSING | COMPLETED | FAILED
+  paramsJson  String // 提交参数（播报稿/克隆类型等）
+  resultJson  String? // 供应商返回/交付物
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([taskId])
 }
 
 /// 积分充值订单（支付接入前为测试支付；支付回调后改为 PAID）

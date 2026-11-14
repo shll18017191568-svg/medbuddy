@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
+  AVATAR_JOB_STATUS_LABEL,
   TASK_STATUS_LABEL,
   TASK_TYPE_META,
   TaskMode,
@@ -188,6 +189,130 @@ export default function TaskDetailPage() {
               {(result.warnings as string[]).map((w, i) => (
                 <p key={i}>· {w}</p>
               ))}
+            </div>
+          )}
+          {result.kind === "avatar_video" && (
+            <div className="mt-3 space-y-3">
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">
+                  {String(result.provider_label ?? "供应商")}
+                </span>
+                <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">
+                  {String(result.voice_label ?? "")}
+                </span>
+                <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">
+                  {String(result.aspect_label ?? "")}
+                </span>
+                <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">
+                  约 {String(result.total_seconds ?? 0)} 秒
+                </span>
+                <span
+                  className={`rounded-full px-2.5 py-1 ${
+                    result.job_status === "COMPLETED"
+                      ? "bg-green-100 text-green-700"
+                      : result.job_status === "FAILED"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-blue-100 text-blue-700"
+                  }`}
+                >
+                  {AVATAR_JOB_STATUS_LABEL[String(result.job_status ?? "")] ??
+                    String(result.job_status ?? "")}
+                </span>
+              </div>
+
+              {typeof result.video_url === "string" && result.video_url.length > 0 ? (
+                <video
+                  controls
+                  src={result.video_url}
+                  className="w-full rounded-lg border border-slate-200 bg-black"
+                />
+              ) : (
+                <p className="rounded-md bg-white/70 px-3 py-2 text-xs text-slate-500">
+                  成片尚未生成：任务单号 <span className="font-mono">{String(result.job_id ?? "-")}</span>
+                  ，可在数字人工作室查看进度
+                </p>
+              )}
+
+              {typeof result.narration === "string" && result.narration.length > 0 && (
+                <details open className="rounded-lg border border-slate-200 bg-white p-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+                    完整口播稿
+                  </summary>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
+                    {result.narration}
+                  </p>
+                </details>
+              )}
+
+              {Array.isArray(result.shots) && result.shots.length > 0 && (
+                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">镜头</th>
+                        <th className="px-3 py-2">字幕 / 口播</th>
+                        <th className="px-3 py-2">画面提示</th>
+                        <th className="px-3 py-2">时长</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(
+                        result.shots as {
+                          index: number;
+                          subtitle: string;
+                          visual: string;
+                          seconds: number;
+                        }[]
+                      ).map((s) => (
+                        <tr key={s.index} className="border-t border-slate-100 align-top">
+                          <td className="px-3 py-2 text-slate-500">{s.index}</td>
+                          <td className="px-3 py-2 text-slate-700">{s.subtitle}</td>
+                          <td className="px-3 py-2 text-slate-500">{s.visual}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-slate-500">{s.seconds}s</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {Array.isArray(result.compliance_notes) && result.compliance_notes.length > 0 && (
+                <div className="rounded-lg bg-white p-3 text-xs leading-relaxed text-slate-500">
+                  <p className="font-semibold text-slate-600">合规提示</p>
+                  {(result.compliance_notes as string[]).map((note, i) => (
+                    <p key={i} className="mt-1">
+                      · {note}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {result.kind === "avatar_clone" && (
+            <div className="mt-3 space-y-3">
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">
+                  {String(result.type_label ?? "克隆")}
+                </span>
+                <span className="rounded-full bg-white px-2.5 py-1 text-slate-600">
+                  {String(result.provider_label ?? "供应商")}
+                </span>
+                <span className="rounded-full bg-white px-2.5 py-1 font-mono text-slate-600">
+                  单号 {String(result.job_id ?? "-")}
+                </span>
+                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-blue-700">
+                  {AVATAR_JOB_STATUS_LABEL[String(result.job_status ?? "")] ??
+                    String(result.job_status ?? "")}
+                </span>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-700">需准备的材料（缺一不可）</p>
+                <ul className="mt-1 space-y-1 text-sm text-slate-600">
+                  {((result.materials as string[]) ?? []).map((m, i) => (
+                    <li key={i}>· {m}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
           )}
           {typeof result.markdown === "string" && (

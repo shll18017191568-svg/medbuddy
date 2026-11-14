@@ -140,6 +140,10 @@ export default function NewTaskPage() {
                   ? "输入主题并注明形式，如：高血压患者夏季用药注意事项（短视频脚本，发抖音）"
                 : type === TaskType.STYLE_REWRITE
                   ? "粘贴原文（≥50 字），并说明改成什么文风，如：以下这段改成患者能看懂的版本：……"
+                  : type === TaskType.AVATAR_VIDEO
+                  ? "描述视频主题并注明时长/音色/画幅，如：高血压患者夏季用药注意事项，45 秒，竖屏发抖音（更多参数建议到数字人工作室提交）"
+                  : type === TaskType.AVATAR_CLONE
+                  ? "说明克隆类型与用途，如：克隆本人声音用于患教播报，已录制安静环境人声（需附授权材料）"
                   : type === TaskType.REFERENCE_FORMAT
                   ? "粘贴 PMID 列表，可注明格式，如：38453898 33268902 35025101（APA 格式）"
                   : "用大白话描述您的需求，如：帮我找铁死亡在肿瘤免疫中作用近 3 年的高质量综述，优先 Review，排除 Letter"

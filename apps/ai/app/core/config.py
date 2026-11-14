@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     pubmed_email: str = ""
     pubmed_timeout: float = 30.0
 
+    # 数字人第三方 API（一期：腾讯智影 / 硅基智能，双供应商备份）
+    # auto 按已配置 Key 自动选择；mock 用于无 Key 演示（只产脚本与任务单，不合成成片）
+    avatar_provider: str = "auto"  # auto | zhiying | silicon | mock
+    avatar_zhiying_base_url: str = ""
+    avatar_zhiying_api_key: str = ""
+    avatar_silicon_base_url: str = ""
+    avatar_silicon_api_key: str = ""
+    avatar_timeout: float = 20.0  # 单次提交后等待合成的秒数，超时按 PROCESSING 回传任务单
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 
