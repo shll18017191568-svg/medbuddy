@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -119,7 +120,14 @@ export default function LoginPage() {
       </div>
 
       <p className="mt-6 text-center text-xs text-slate-400">
-        登录即代表同意《用户协议》与《隐私政策》（S4 上线前补充正式文本）
+        登录即代表同意
+        <Link href="/legal/terms" className="mx-1 text-blue-600 hover:underline">
+          《用户协议》
+        </Link>
+        与
+        <Link href="/legal/privacy" className="mx-1 text-blue-600 hover:underline">
+          《隐私政策》
+        </Link>
       </p>
     </main>
   );

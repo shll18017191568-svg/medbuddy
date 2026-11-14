@@ -167,7 +167,11 @@ export default function NewTaskPage() {
           {loading ? "提交中…" : `提交任务（扣 ${meta.price} 积分）`}
         </button>
         <p className="text-xs text-slate-400">
-          提交后任务云端执行，关闭浏览器不影响；完成后在任务中心查看交付结果
+          提交后任务云端执行，关闭浏览器不影响；完成后在任务中心查看交付结果。
+          交付物由 AI 辅助生成并经合规审核，详见
+          <Link href="/legal/disclaimer" className="mx-1 text-blue-600 hover:underline">
+            《医疗免责声明》
+          </Link>
         </p>
       </section>
     </main>
