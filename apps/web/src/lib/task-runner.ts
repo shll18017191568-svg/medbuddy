@@ -244,6 +244,45 @@ async function runExperimentDesign(prompt: string, title: string) {
   };
 }
 
+/** 技能 4：临床方案设计（PICO + 统计 + 伦理） */
+async function runClinicalDesign(prompt: string, title: string) {
+  const matched = prompt.match(/\b\d{5,9}\b/);
+  const res = await fetch(`${AI_URL}/api/skills/clinical-design`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      topic: prompt.trim().slice(0, 500),
+      pmid: matched?.[0],
+    }),
+  });
+
+  const data = (await res.json().catch(() => null)) as {
+    error?: string;
+    title?: string;
+    study_type?: string;
+    markdown?: string;
+    plan?: Record<string, unknown>;
+    seed?: { pmid?: string; title?: string } | null;
+    stats?: Record<string, unknown>;
+    warnings?: string[];
+  } | null;
+
+  if (!res.ok || !data) throw new Error(`方案服务返回 ${res.status}`);
+  if (data.error) throw new Error(data.error);
+
+  return {
+    kind: "clinical_design",
+    summary: `「${data.title ?? title}」临床方案已生成（${data.study_type ?? "研究类型待明确"}）`,
+    title: data.title ?? title,
+    study_type: data.study_type ?? "",
+    markdown: data.markdown ?? "",
+    plan: data.plan ?? {},
+    seed: data.seed ?? null,
+    stats: data.stats ?? {},
+    warnings: data.warnings ?? [],
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -273,7 +312,9 @@ export function runTask(taskId: string) {
                 ? await runReviewDraft(input.prompt, task.title)
                 : task.type === TaskType.EXPERIMENT_DESIGN
                   ? await runExperimentDesign(input.prompt, task.title)
-                  : (await sleep(1200), mockDeliverable(task.type, task.title));
+                  : task.type === TaskType.CLINICAL_DESIGN
+                    ? await runClinicalDesign(input.prompt, task.title)
+                    : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);

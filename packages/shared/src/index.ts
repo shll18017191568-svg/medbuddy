@@ -30,6 +30,7 @@ export enum TaskType {
   CHART = "chart", // 技能8：数据可视化
   REVIEW_DRAFT = "review_draft", // 技能5：综述写作
   EXPERIMENT_DESIGN = "experiment_design", // 技能3：实验设计
+  CLINICAL_DESIGN = "clinical_design", // 技能4：临床方案设计
   REFERENCE_FORMAT = "reference_format", // 技能9：参考文献管理
   AVATAR_CHAT = "avatar_chat", // 数字人对话
   AVATAR_CLONE = "avatar_clone", // 数字人定制
@@ -62,6 +63,11 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
     label: "实验设计",
     price: 600,
     description: "以核心文献或课题为起点，产出可开题的分组与实验方案",
+  },
+  [TaskType.CLINICAL_DESIGN]: {
+    label: "临床方案",
+    price: 600,
+    description: "按 PICO 与国自然结构生成临床研究方案，含统计与伦理",
   },
   [TaskType.REFERENCE_FORMAT]: {
     label: "参考文献排版",
