@@ -125,7 +125,11 @@ export default function NewTaskPage() {
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={5}
-            placeholder="用大白话描述您的需求，如：帮我找铁死亡在肿瘤免疫中作用近 3 年的高质量综述，优先 Review，排除 Letter"
+            placeholder={
+              type === TaskType.LITERATURE_DIGEST
+                ? "输入要解读的文献 PMID（5-9 位数字），如：38453898"
+                : "用大白话描述您的需求，如：帮我找铁死亡在肿瘤免疫中作用近 3 年的高质量综述，优先 Review，排除 Letter"
+            }
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500"
           />
         </div>

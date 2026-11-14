@@ -63,6 +63,43 @@ async function runLiteratureSearch(prompt: string, title: string) {
   };
 }
 
+/** 技能 2：文献解读（PMID → 结构化拆解，只认原文） */
+async function runLiteratureDigest(prompt: string, fallbackTitle: string) {
+  const matched = prompt.match(/\b\d{5,9}\b/);
+  if (!matched) {
+    throw new Error("未找到 PMID：请在需求描述中提供 5-9 位 PMID（如 38453898）");
+  }
+  const pmid = matched[0];
+
+  const res = await fetch(`${AI_URL}/api/skills/literature-digest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pmid }),
+  });
+  if (!res.ok) throw new Error(`解读服务返回 ${res.status}`);
+
+  const data = (await res.json()) as {
+    error?: string;
+    title?: string;
+    mode?: string;
+    meta?: Record<string, unknown>;
+    sections?: { key: string; label: string; content: string }[];
+    evidence?: string;
+  };
+  if (data.error) throw new Error(data.error);
+
+  return {
+    kind: "literature_digest",
+    summary: `「${data.title ?? fallbackTitle}」解读完成（PMID ${pmid}）`,
+    pmid,
+    title: data.title ?? fallbackTitle,
+    mode: data.mode ?? "structured",
+    meta: data.meta ?? {},
+    sections: data.sections ?? [],
+    evidence: data.evidence ?? "",
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -84,7 +121,9 @@ export function runTask(taskId: string) {
       const result =
         task.type === TaskType.LITERATURE_SEARCH
           ? await runLiteratureSearch(input.prompt, task.title)
-          : (await sleep(1200), mockDeliverable(task.type, task.title));
+          : task.type === TaskType.LITERATURE_DIGEST
+            ? await runLiteratureDigest(input.prompt, task.title)
+            : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);

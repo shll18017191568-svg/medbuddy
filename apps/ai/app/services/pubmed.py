@@ -160,3 +160,16 @@ async def search_literature(
         "years": years,
         "items": [item.__dict__ for item in items],
     }
+
+
+async def fetch_article(pmid: str) -> tuple[LiteratureItem | None, str]:
+    """按 PMID 取元数据 + 摘要原文（供文献解读技能使用）。"""
+    async with httpx.AsyncClient(timeout=settings.pubmed_timeout) as client:
+        items = await _esummary(client, [pmid])
+        resp = await client.get(
+            f"{EUTILS}/efetch.fcgi",
+            params={**_params(), "db": "pubmed", "id": pmid, "rettype": "abstract", "retmode": "text"},
+        )
+        raw = resp.text if resp.status_code == 200 else ""
+
+    return (items[0] if items else None), raw.strip()

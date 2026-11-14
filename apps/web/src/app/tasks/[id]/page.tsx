@@ -162,6 +162,41 @@ export default function TaskDetailPage() {
               检索式：<span className="font-mono">{result.query}</span>
             </p>
           )}
+          {typeof result.pmid === "string" && (
+            <p className="mt-2 text-xs text-slate-500">
+              PMID{" "}
+              <a
+                href={`https://pubmed.ncbi.nlm.nih.gov/${result.pmid}/`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-blue-600 hover:underline"
+              >
+                {result.pmid} · 查看原文 ↗
+              </a>
+            </p>
+          )}
+          {Array.isArray(result.sections) && (
+            <div className="mt-3 space-y-2">
+            {(
+              result.sections as { key: string; label: string; content: string }[]
+            ).map((s) => (
+              <div key={s.key} className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold text-slate-700">{s.label}</p>
+                <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{s.content}</p>
+              </div>
+            ))}
+            </div>
+          )}
+          {typeof result.evidence === "string" && result.evidence.length > 0 && (
+            <details className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+              <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                查看原文摘要（核对依据）
+              </summary>
+              <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-500">
+                {result.evidence}
+              </p>
+            </details>
+          )}
           {Array.isArray(result.items) && (
             <ul className="mt-3 space-y-2">
               {(

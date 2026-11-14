@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from app.services.digest import digest_pmid
 from app.services.pubmed import search_literature
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
@@ -26,3 +27,18 @@ async def literature_search(req: LiteratureSearchRequest) -> dict:
         return await search_literature(req.query, limit=req.limit, years=req.years)
     except httpx.HTTPError as err:
         return {"error": f"PubMed 检索失败：{type(err).__name__}", "items": [], "count": 0}
+
+
+class LiteratureDigestRequest(BaseModel):
+    pmid: str = Field(pattern=r"^\d{1,9}$")
+
+
+@router.post("/literature-digest")
+async def literature_digest(req: LiteratureDigestRequest) -> dict:
+    """技能 2：文献解读（基于 PubMed 摘要的结构化拆解）。"""
+    try:
+        return await digest_pmid(req.pmid)
+    except ValueError as err:
+        return {"error": str(err)}
+    except httpx.HTTPError as err:
+        return {"error": f"PubMed 访问失败：{type(err).__name__}"}
