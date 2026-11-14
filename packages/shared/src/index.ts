@@ -28,6 +28,7 @@ export enum TaskType {
   LITERATURE_SEARCH = "literature_search", // 技能1：文献检索
   LITERATURE_DIGEST = "literature_digest", // 技能2：文献解读
   CHART = "chart", // 技能8：数据可视化
+  REVIEW_DRAFT = "review_draft", // 技能5：综述写作
   REFERENCE_FORMAT = "reference_format", // 技能9：参考文献管理
   AVATAR_CHAT = "avatar_chat", // 数字人对话
   AVATAR_CLONE = "avatar_clone", // 数字人定制
@@ -50,6 +51,11 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
     label: "学术绘图",
     price: 300,
     description: "上传数据，一句话生成顶刊配色学术图表",
+  },
+  [TaskType.REVIEW_DRAFT]: {
+    label: "综述写作",
+    price: 800,
+    description: "输入主题，自动建库检索并生成带真实 PMID 引用的综述初稿",
   },
   [TaskType.REFERENCE_FORMAT]: {
     label: "参考文献排版",

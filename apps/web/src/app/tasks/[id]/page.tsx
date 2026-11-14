@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -180,6 +181,29 @@ export default function TaskDetailPage() {
               <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">
                 {result.interpretation}
               </p>
+            </div>
+          )}
+          {Array.isArray(result.warnings) && result.warnings.length > 0 && (
+            <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs leading-relaxed text-amber-700">
+              {(result.warnings as string[]).map((w, i) => (
+                <p key={i}>· {w}</p>
+              ))}
+            </div>
+          )}
+          {typeof result.markdown === "string" && (
+            <div className="mt-3 rounded-lg border border-slate-200 bg-white p-5">
+              <div className="mb-2 flex justify-end">
+                <a
+                  href={`data:text/markdown;charset=utf-8,${encodeURIComponent(result.markdown)}`}
+                  download="medbuddy-review.md"
+                  className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  下载 Markdown
+                </a>
+              </div>
+              <div className="text-sm leading-relaxed text-slate-700 [&_h1]:mb-3 [&_h1]:text-lg [&_h1]:font-bold [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_p]:mt-2 [&_strong]:text-slate-900">
+                <ReactMarkdown>{result.markdown}</ReactMarkdown>
+              </div>
             </div>
           )}
           {typeof result.query === "string" && (

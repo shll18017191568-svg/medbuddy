@@ -155,6 +155,55 @@ async function runVisualize(prompt: string, title: string) {
   };
 }
 
+/** 技能 5：综述写作（真实建库 + 分章生成 + 引用校验） */
+async function runReviewDraft(prompt: string, title: string) {
+  const res = await fetch(`${AI_URL}/api/skills/review-draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      topic: prompt.trim().slice(0, 500),
+      max_refs: 30,
+      years: 10,
+      citation_style: "gb7714",
+    }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string; detail?: unknown }
+      | null;
+    if (body?.error) throw new Error(body.error);
+    if (res.status === 422) throw new Error("综述主题过短或参数不合法，请补充主题后重试");
+    throw new Error(`写作服务返回 ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    error?: string;
+    title?: string;
+    markdown?: string;
+    abstract?: string;
+    outline?: unknown[];
+    references?: unknown[];
+    stats?: Record<string, unknown>;
+    warnings?: string[];
+  };
+  if (data.error) throw new Error(data.error);
+
+  const stats = data.stats ?? {};
+  return {
+    kind: "review_draft",
+    summary: `「${data.title ?? title}」综述初稿已生成：${String(stats.word_count ?? 0)} 字，引用 ${
+      String(stats.references ?? 0)
+    } 篇真实文献`,
+    title: data.title ?? title,
+    markdown: data.markdown ?? "",
+    abstract: data.abstract ?? "",
+    outline: data.outline ?? [],
+    references: data.references ?? [],
+    stats,
+    warnings: data.warnings ?? [],
+  };
+}
+
 /** 其他任务类型的占位交付物（待后续 Sprint 替换为真实技能） */
 function mockDeliverable(type: string, title: string) {
   if (type === TaskType.AVATAR_CHAT) {
@@ -180,7 +229,9 @@ export function runTask(taskId: string) {
             ? await runLiteratureDigest(input.prompt, task.title)
             : task.type === TaskType.CHART
               ? await runVisualize(input.prompt, task.title)
-              : (await sleep(1200), mockDeliverable(task.type, task.title));
+              : task.type === TaskType.REVIEW_DRAFT
+                ? await runReviewDraft(input.prompt, task.title)
+                : (await sleep(1200), mockDeliverable(task.type, task.title));
 
       // 审核环节：S2 为状态占位，S4 接入 AI 合规预审 + 人工抽审
       await transition(taskId, TaskStatus.REVIEWING);
@@ -196,10 +247,31 @@ export function runTask(taskId: string) {
         },
       });
     } catch (err) {
-      await prisma.task
-        .update({
-          where: { id: taskId },
-          data: { status: TaskStatus.FAILED, failReason: err instanceof Error ? err.message : String(err) },
+      const reason = err instanceof Error ? err.message : String(err);
+
+      // 失败退还积分：医生不应为未交付的服务付费
+      await prisma
+        .$transaction(async (tx) => {
+          const failed = await tx.task.update({
+            where: { id: taskId },
+            data: { status: TaskStatus.FAILED, failReason: reason },
+          });
+          if (failed.creditCost > 0) {
+            const account = await tx.creditAccount.update({
+              where: { userId: failed.userId },
+              data: { balance: { increment: failed.creditCost } },
+            });
+            await tx.creditLedger.create({
+              data: {
+                userId: failed.userId,
+                taskId,
+                type: "REFUND",
+                amount: failed.creditCost,
+                balanceAfter: account.balance,
+                note: "任务失败自动退还",
+              },
+            });
+          }
         })
         .catch(() => {});
     }

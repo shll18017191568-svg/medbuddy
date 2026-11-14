@@ -21,6 +21,7 @@ from app.services.charts import (
 from app.services.digest import digest_pmid
 from app.services.llm import LLMError, complete, resolve_provider
 from app.services.pubmed import search_literature
+from app.services.review import build_review
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
@@ -119,3 +120,28 @@ async def visualize(req: VisualizeRequest) -> dict:
         "rows": rows,
         "columns": [str(c) for c in df.columns],
     }
+
+
+class ReviewDraftRequest(BaseModel):
+    topic: str = Field(min_length=2, max_length=500)
+    max_refs: int = Field(default=30, ge=8, le=60)
+    years: int = Field(default=10, ge=1, le=50)
+    citation_style: str = Field(default="gb7714", pattern="^(gb7714|vancouver)$")
+    sections: int | None = Field(default=None, ge=2, le=5)
+
+
+@router.post("/review-draft")
+async def review_draft(req: ReviewDraftRequest) -> dict:
+    """技能 5：综述写作（真实 PubMed 建库 + 分章生成 + 引用校验）。"""
+    try:
+        return await build_review(
+            req.topic,
+            max_refs=req.max_refs,
+            years=req.years,
+            citation_style=req.citation_style,
+            sections=req.sections,
+        )
+    except ValueError as err:
+        return {"error": str(err)}
+    except httpx.HTTPError as err:
+        return {"error": f"文献检索失败：{type(err).__name__}"}

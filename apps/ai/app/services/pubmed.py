@@ -45,6 +45,9 @@ class LiteratureItem:
     pmc: str | None
     oa: bool
     url: str
+    volume: str | None = None
+    issue: str | None = None
+    pages: str | None = None
 
 
 def _params() -> dict:
@@ -136,6 +139,9 @@ async def _esummary(client: httpx.AsyncClient, pmids: list[str]) -> list[Literat
                 pmc=pmc,
                 oa=bool(pmc),
                 url=f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                volume=doc.get("volume") or None,
+                issue=doc.get("issue") or None,
+                pages=doc.get("pages") or None,
             )
         )
     return items
