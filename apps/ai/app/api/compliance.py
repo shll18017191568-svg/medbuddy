@@ -12,10 +12,11 @@ router = APIRouter(prefix="/api/compliance", tags=["compliance"])
 class PrecheckRequest(BaseModel):
     task_type: str = Field(max_length=40)
     title: str = Field(default="", max_length=100)
+    input_text: str = Field(default="", max_length=5000)
     result: dict
 
 
 @router.post("/precheck")
 async def run_precheck(req: PrecheckRequest) -> dict:
     """确定性合规预审：免责声明 / AI 标注 / 绝对化用语 / PMID 真实溯源。"""
-    return await precheck(req.task_type, req.title, req.result)
+    return await precheck(req.task_type, req.title, req.result, req.input_text)

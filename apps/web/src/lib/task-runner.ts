@@ -546,9 +546,10 @@ async function runPrecheck(
   type: string,
   title: string,
   result: unknown,
+  inputText: string,
 ): Promise<PrecheckResult> {
   try {
-    return await precheckDeliverable(type, title, result);
+    return await precheckDeliverable(type, title, result, inputText);
   } catch (err) {
     return {
       status: "WARN",
@@ -608,7 +609,7 @@ export function runTask(taskId: string) {
       }
 
       // AI 合规预审 + 交付物落库，供合规审核台人工审核（通过后才回传医生）
-      const precheck = await runPrecheck(task.type, task.title, result);
+      const precheck = await runPrecheck(task.type, task.title, result, input.prompt);
       await prisma.task.update({
         where: { id: taskId },
         data: {

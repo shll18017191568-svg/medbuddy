@@ -29,7 +29,8 @@ def login(c: httpx.Client, phone: str) -> bool:
     return verify.status_code == 200
 
 
-def run_task(c: httpx.Client, payload: dict, limit: int = 30) -> dict | None:
+def run_task(c: httpx.Client, payload: dict, limit: int = 30, approve: bool = True) -> dict | None:
+    """提交任务并等到终态；默认在审核中自动通过（验收环境模拟审核员）。"""
     created = c.post(f"{BASE}/api/tasks", json=payload)
     if created.status_code != 200:
         return None
@@ -37,6 +38,15 @@ def run_task(c: httpx.Client, payload: dict, limit: int = 30) -> dict | None:
     for _ in range(limit):
         time.sleep(4)
         d = c.get(f"{BASE}/api/tasks/{tid}").json()["task"]
+        if d["status"] == "reviewing":
+            if not approve:
+                return d
+            res = c.post(
+                f"{BASE}/api/admin/tasks/{tid}/review",
+                json={"action": "APPROVE", "note": "验收脚本自动通过"},
+            )
+            if res.status_code != 200:
+                return d
         if d["status"] in ("delivered", "failed"):
             return d
     return None
@@ -183,6 +193,49 @@ with httpx.Client(timeout=90) as c:
     check("后台用户列表", users.status_code == 200 and len(users.json().get("users", [])) > 0)
     tasks = c.get(f"{BASE}/api/admin/tasks")
     check("后台任务列表", tasks.status_code == 200 and len(tasks.json().get("tasks", [])) > 0)
+
+    print("\n[13] 合规审核台与 AI 预审")
+    wait_review = run_task(c, {"type": "avatar_chat", "mode": "craft",
+                               "title": "验收-审核台", "prompt": "高血压患者限盐建议"}, approve=False)
+    if wait_review and wait_review["status"] == "reviewing":
+        check("任务停在审核中", wait_review.get("reviewStatus") == "PENDING",
+              f"reviewStatus={wait_review.get('reviewStatus')}")
+        check("预审结果已生成", wait_review.get("precheckStatus") in ("PASS", "WARN", "HIGH_RISK"),
+              f"precheckStatus={wait_review.get('precheckStatus')}")
+        check("预审发现项可回溯", bool(wait_review.get("precheckJson")),
+              f"{len(json.loads(wait_review.get('precheckJson') or '{}').get('findings', []))} 条")
+
+        approve = c.post(f"{BASE}/api/admin/tasks/{wait_review['id']}/review",
+                         json={"action": "APPROVE", "note": "验收通过"})
+        check("审核通过接口", approve.status_code == 200, f"HTTP {approve.status_code}")
+        time.sleep(2)
+        delivered = c.get(f"{BASE}/api/tasks/{wait_review['id']}").json()["task"]
+        check("审核通过后回传", delivered["status"] == "delivered"
+              and delivered.get("reviewStatus") == "APPROVED"
+              and bool(delivered.get("reviewerName")),
+              f"status={delivered['status']} reviewer={delivered.get('reviewerName')}")
+        again = c.post(f"{BASE}/api/admin/tasks/{wait_review['id']}/review", json={"action": "APPROVE"})
+        check("重复审核被拒绝", again.status_code == 409, f"HTTP {again.status_code}")
+    else:
+        check("任务停在审核中", False, (wait_review or {}).get("status", "超时"))
+
+    before_reject = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    to_reject = run_task(c, {"type": "avatar_chat", "mode": "craft",
+                             "title": "验收-审核驳回", "prompt": "糖尿病饮食建议"}, approve=False)
+    if to_reject and to_reject["status"] == "reviewing":
+        empty_note = c.post(f"{BASE}/api/admin/tasks/{to_reject['id']}/review", json={"action": "REJECT"})
+        check("空意见驳回被拦截", empty_note.status_code == 400, f"HTTP {empty_note.status_code}")
+        reject = c.post(f"{BASE}/api/admin/tasks/{to_reject['id']}/review",
+                        json={"action": "REJECT", "note": "验收：正文缺少医学免责声明"})
+        check("审核驳回接口", reject.status_code == 200, f"HTTP {reject.status_code}")
+        time.sleep(2)
+        rejected = c.get(f"{BASE}/api/tasks/{to_reject['id']}").json()["task"]
+        refunded = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+        check("驳回后任务失败", rejected["status"] == "failed"
+              and rejected.get("reviewStatus") == "REJECTED", rejected["status"])
+        check("驳回全额退款", refunded == before_reject, f"{before_reject} -> {refunded}")
+    else:
+        check("空意见驳回被拦截", False, (to_reject or {}).get("status", "超时"))
 
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)

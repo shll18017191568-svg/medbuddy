@@ -16,38 +16,35 @@ HIGH = "HIGH"
 WARN = "WARN"
 INFO = "INFO"
 
-# 绝对化用语 / 夸大疗效（命中即高危，交人工重点复核）
-ABSOLUTE_TERMS = [
-    "根治",
-    "治愈",
-    "包治",
-    "神药",
-    "特效药",
-    "无副作用",
-    "绝对安全",
-    "零风险",
-    "永不复发",
-    "彻底治好",
-    "保证治愈",
-    "百分之百有效",
-    "100%有效",
-    "100% 有效",
+# 夸大疗效表述（命中即高危；排除「根治性手术」「治愈率」等正规术语）
+ABSOLUTE_PATTERNS = [
+    re.compile(r"(?<![不未难])根治(?!性)"),
+    re.compile(r"(?<![不未难])治愈(?!性|率)"),
+    re.compile(r"包治"),
+    re.compile(r"神药"),
+    re.compile(r"特效药"),
+    re.compile(r"无(?:任何)?副作用"),
+    re.compile(r"绝对安全"),
+    re.compile(r"零风险"),
+    re.compile(r"永不复发"),
+    re.compile(r"百分之百有效"),
+    re.compile(r"100%\s*有效"),
+    re.compile(r"保证(?:能)?(?:治好|治愈|有效)"),
 ]
 
 DISCLAIMER_MARKERS = ["仅供参考", "不构成诊疗建议", "不能替代", "不可替代"]
 AI_MARKERS = ["ai 辅助", "ai辅助", "ai生成", "ai 生成", "人工智能", "模型生成", "ai 撰写", "ai撰写"]
 
-# 必须带真实文献溯源的任务类型
-FACT_TYPES = {
-    "literature_search",
-    "literature_digest",
-    "review_draft",
-    "experiment_design",
-    "clinical_design",
-    "reference_format",
-}
+# 文献类：必须带 PMID 溯源（缺失判高危）
+LITERATURE_TYPES = {"literature_search", "literature_digest", "review_draft", "reference_format"}
+# 设计类：鼓励引用核心文献（缺失仅提示，不判高危）
+DESIGN_TYPES = {"experiment_design", "clinical_design"}
+FACT_TYPES = LITERATURE_TYPES | DESIGN_TYPES
 
+# 单次 PubMed 核验上限（fetch_items 内部按 50 条/批）
+PMID_CHECK_LIMIT = 50
 PMID_PATTERN = re.compile(r"PMID[:\s#]*(\d{5,9})", re.I)
+BARE_PMID_PATTERN = re.compile(r"\b\d{5,9}\b")
 _TEXT_KEYS = {
     "markdown",
     "narration",
@@ -75,7 +72,7 @@ def _iter_texts(value) -> list[str]:
     return texts
 
 
-def _collect_pmids(result: dict) -> list[str]:
+def _collect_pmids(result: dict, input_text: str, task_type: str) -> list[str]:
     pmids: list[str] = []
 
     def add(raw) -> None:
@@ -93,11 +90,22 @@ def _collect_pmids(result: dict) -> list[str]:
     text = "\n".join(_iter_texts(result))
     for pmid in PMID_PATTERN.findall(text):
         add(pmid)
+    for pmid in PMID_PATTERN.findall(input_text or ""):
+        add(pmid)
+    # 参考文献排版任务：医生在需求里直接贴裸 PMID
+    if task_type == "reference_format":
+        for pmid in BARE_PMID_PATTERN.findall(input_text or ""):
+            add(pmid)
     return pmids
 
 
 def _check_absolute_terms(text: str) -> list[dict]:
-    hits = [term for term in ABSOLUTE_TERMS if term in text]
+    hits: list[str] = []
+    for pattern in ABSOLUTE_PATTERNS:
+        for match in pattern.finditer(text):
+            snippet = match.group(0)
+            if snippet not in hits:
+                hits.append(snippet)
     if not hits:
         return []
     return [
@@ -134,10 +142,10 @@ def _check_marks(text: str) -> list[dict]:
     return findings
 
 
-async def precheck(task_type: str, title: str, result: dict) -> dict:
+async def precheck(task_type: str, title: str, result: dict, input_text: str = "") -> dict:
     """返回 {status, findings, pmids, verified_pmids, checked_chars, checked_at}。"""
     text = "\n\n".join(_iter_texts(result))
-    pmids = _collect_pmids(result)
+    pmids = _collect_pmids(result, input_text, task_type)
     findings: list[dict] = []
 
     if not text.strip() and not pmids:
@@ -155,19 +163,29 @@ async def precheck(task_type: str, title: str, result: dict) -> dict:
     verified: list[str] = []
     if task_type in FACT_TYPES:
         if not pmids:
-            findings.append(
-                {
-                    "level": HIGH,
-                    "code": "NO_PMID",
-                    "message": "事实类交付物没有任何 PMID 溯源，存在模型编造风险",
-                }
-            )
+            if task_type in LITERATURE_TYPES:
+                findings.append(
+                    {
+                        "level": HIGH,
+                        "code": "NO_PMID",
+                        "message": "文献类交付物没有任何 PMID 溯源，存在模型编造风险",
+                    }
+                )
+            else:
+                findings.append(
+                    {
+                        "level": WARN,
+                        "code": "NO_PMID",
+                        "message": "设计类交付物未引用核心文献 PMID，建议补充研究依据",
+                    }
+                )
         else:
             try:
-                items = await fetch_items(pmids[:20])
+                check_list = pmids[:PMID_CHECK_LIMIT]
+                items = await fetch_items(check_list)
                 found = {item.pmid for item in items}
-                verified = [p for p in pmids if p in found]
-                missing = [p for p in pmids if p not in found]
+                verified = [p for p in check_list if p in found]
+                missing = [p for p in check_list if p not in found]
                 if missing:
                     findings.append(
                         {
@@ -183,6 +201,14 @@ async def precheck(task_type: str, title: str, result: dict) -> dict:
                             "level": INFO,
                             "code": "PMID_VERIFIED",
                             "message": f"已核验 {len(verified)} 条 PMID 均可在 PubMed 溯源",
+                        }
+                    )
+                if len(pmids) > PMID_CHECK_LIMIT:
+                    findings.append(
+                        {
+                            "level": INFO,
+                            "code": "PMID_CHECK_TRUNCATED",
+                            "message": f"共 {len(pmids)} 条 PMID，单次核验前 {PMID_CHECK_LIMIT} 条，其余请人工抽查",
                         }
                     )
             except Exception:

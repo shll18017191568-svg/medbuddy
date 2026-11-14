@@ -23,11 +23,12 @@ export async function precheckDeliverable(
   type: string,
   title: string,
   result: unknown,
+  inputText = "",
 ): Promise<PrecheckResult> {
   const res = await fetch(`${AI_URL}/api/compliance/precheck`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task_type: type, title, result }),
+    body: JSON.stringify({ task_type: type, title, result, input_text: inputText }),
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`合规预审服务返回 ${res.status}`);
