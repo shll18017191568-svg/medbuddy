@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { SESSION_COOKIE, SESSION_MAX_AGE, signSession } from "@/lib/auth";
+import { SESSION_COOKIE, SESSION_MAX_AGE, isAdminPhone, signSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { checkSmsCode } from "@/lib/sms";
 import { REGISTER_CREDIT_BONUS } from "@medbuddy/shared";
@@ -31,12 +31,23 @@ export async function POST(req: Request) {
       where: { phone },
       include: { profile: true },
     });
-    if (existing) return existing;
+    if (existing) {
+      // 管理员白名单引导：命中则自动提权
+      if (isAdminPhone(phone) && existing.role !== "ADMIN") {
+        return tx.user.update({
+          where: { id: existing.id },
+          data: { role: "ADMIN" },
+          include: { profile: true },
+        });
+      }
+      return existing;
+    }
 
     // 新用户注册：建立账户 + 注册积分
     return tx.user.create({
       data: {
         phone,
+        role: isAdminPhone(phone) ? "ADMIN" : "DOCTOR",
         credits: { create: { balance: REGISTER_CREDIT_BONUS, totalEarn: REGISTER_CREDIT_BONUS } },
       },
       include: { profile: true },

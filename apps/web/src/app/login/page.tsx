@@ -51,7 +51,11 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "登录失败");
-      router.push(data.needsProfile ? "/onboarding" : "/");
+      if (data.user?.role === "ADMIN") {
+        router.push("/admin");
+      } else {
+        router.push(data.needsProfile ? "/onboarding" : "/");
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");

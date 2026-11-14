@@ -46,5 +46,25 @@ export async function getCurrentUser() {
   return prisma.user.findUnique({
     where: { id: userId },
     include: { profile: true, credits: true },
+  }).then((user) => {
+    // 停用账号立即失效（不必等会话过期）
+    if (!user || user.status !== "ACTIVE") return null;
+    return user;
   });
+}
+
+/** 管理员登录手机号白名单（登录时自动提权，避免手工改库） */
+export function isAdminPhone(phone: string): boolean {
+  const list = (process.env.ADMIN_PHONES ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.includes(phone);
+}
+
+/** 运营后台鉴权：非管理员一律返回 null（API 层调用） */
+export async function requireAdmin() {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "ADMIN" || user.status !== "ACTIVE") return null;
+  return user;
 }

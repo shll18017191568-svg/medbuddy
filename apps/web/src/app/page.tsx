@@ -103,6 +103,11 @@ export default function Home() {
                     完善资料
                   </Link>
                 )}
+                {me.user.role === "ADMIN" && (
+                  <Link href="/admin" className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
+                    运营后台
+                  </Link>
+                )}
                 <button onClick={logout} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">
                   退出
                 </button>
