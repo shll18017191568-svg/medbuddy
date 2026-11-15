@@ -1,5 +1,7 @@
-"""验收脚本：MedBuddy 全功能 API 级验收（跑完自动汇总）。验收后可删除。"""
+"""验收脚本：MedBuddy 全功能 API 与数据库验收（跑完自动汇总）。验收后可删除。"""
 import json
+from pathlib import Path
+import sqlite3
 import sys
 import time
 
@@ -9,6 +11,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 BASE = "http://localhost:3000"
 AI = "http://localhost:8000"
+DB = str(Path(__file__).resolve().parents[1] / "apps" / "web" / "prisma" / "dev.db")
 PHONE = "13900139000"  # 管理员 + 已完善资料
 
 results: list[tuple[str, bool, str]] = []
@@ -307,6 +310,136 @@ with httpx.Client(timeout=90) as c:
           f"level={(m1.get('current') or {}).get('level')}")
     check("会员到期时间顺延", bool(new_expire) and (not old_expire or new_expire > old_expire),
           f"{old_expire} -> {new_expire}")
+
+    print("\n[15] 订单管理与退款冲正（独立测试账号）")
+
+    def paid_recharge(client: httpx.Client) -> tuple[dict, httpx.Response]:
+        created = client.post(f"{BASE}/api/credits/recharge",
+                              json={"packageId": "starter", "provider": "mock"})
+        order = created.json().get("order", {}) if created.status_code == 200 else {}
+        paid = client.post(f"{BASE}/api/payments/mock/pay",
+                           json={"outTradeNo": order.get("outTradeNo")})
+        return order, paid
+
+    def paid_membership(client: httpx.Client) -> tuple[dict, httpx.Response]:
+        created = client.post(f"{BASE}/api/membership/subscribe",
+                              json={"level": "pro", "provider": "mock"})
+        order = created.json().get("order", {}) if created.status_code == 200 else {}
+        paid = client.post(f"{BASE}/api/payments/mock/pay",
+                           json={"outTradeNo": order.get("outTradeNo")})
+        return order, paid
+
+    def refund_order(client: httpx.Client, kind: str, order_id: str | None,
+                     reason: str = "全量验收退款冲正") -> httpx.Response:
+        return client.post(f"{BASE}/api/admin/orders/refund",
+                           json={"kind": kind, "orderId": order_id, "reason": reason})
+
+    test_phone = f"136{int(time.time() * 1000) % 100000000:08d}"
+    with httpx.Client(timeout=90) as order_user:
+        logged_in = login(order_user, test_phone)
+        test_me = order_user.get(f"{BASE}/api/auth/me").json().get("user", {})
+        test_user_id = test_me.get("id")
+        check("订单测试独立账号注册", logged_in and test_me.get("role") == "DOCTOR", test_phone)
+        check("非管理员订单列表 403", order_user.get(f"{BASE}/api/admin/orders").status_code == 403)
+        check("非管理员退款接口 403",
+              refund_order(order_user, "recharge", "not-found").status_code == 403)
+
+        order_list = c.get(f"{BASE}/api/admin/orders?kind=recharge")
+        reconciliation = order_list.json().get("reconciliation", {}) if order_list.status_code == 200 else {}
+        check("管理员订单列表与对账返回", order_list.status_code == 200
+              and all(key in reconciliation for key in ("recharge", "membership", "total")))
+
+        start_balance = order_user.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+        recharge, recharge_pay = paid_recharge(order_user)
+        after_pay = order_user.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+        check("退款验收充值支付入账", recharge_pay.status_code == 200
+              and after_pay == start_balance + 1000, f"{start_balance} -> {after_pay}")
+        missing_reason = refund_order(c, "recharge", recharge.get("id"), "   ")
+        check("退款原因必填", missing_reason.status_code == 400, f"HTTP {missing_reason.status_code}")
+        refunded = refund_order(c, "recharge", recharge.get("id"))
+        refunded_data = refunded.json() if refunded.status_code == 200 else {}
+        after_refund = order_user.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+        check("充值退款扣回积分", refunded.status_code == 200
+              and refunded_data.get("refundedCredits") == 1000 and after_refund == start_balance,
+              f"余额 {after_refund}")
+        check("重复充值退款拒绝",
+              refund_order(c, "recharge", recharge.get("id")).status_code == 409)
+
+        with sqlite3.connect(DB, timeout=30) as conn:
+            row = conn.execute("SELECT status FROM RechargeOrder WHERE id = ?",
+                               (recharge.get("id"),)).fetchone()
+            ledger = conn.execute(
+                "SELECT amount, note FROM CreditLedger WHERE userId = ? AND note LIKE ? "
+                "ORDER BY createdAt DESC LIMIT 1",
+                (test_user_id, f"%{recharge.get('outTradeNo')}%")).fetchone()
+        check("充值退款状态与负数流水", bool(row and row[0] == "REFUNDED"
+              and ledger and ledger[0] == -1000 and "全量验收" in ledger[1]))
+
+        first_member, _ = paid_membership(order_user)
+        second_member, _ = paid_membership(order_user)
+        member_now = order_user.get(f"{BASE}/api/auth/me").json()["user"].get("membership", {})
+        check("续费后会员仍有效", member_now.get("level") == "pro", str(member_now.get("level")))
+        earlier_refund = refund_order(c, "membership", first_member.get("id"))
+        check("存在后续续费时拒绝退款", earlier_refund.status_code == 409
+              and "续费" in earlier_refund.json().get("error", ""),
+              earlier_refund.json().get("error", ""))
+        before_member_refund = order_user.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+        member_refund = refund_order(c, "membership", second_member.get("id"))
+        member_refund_data = member_refund.json() if member_refund.status_code == 200 else {}
+        after_member = order_user.get(f"{BASE}/api/auth/me").json()["user"]
+        check("会员退款撤销等级与赠送", member_refund.status_code == 200
+              and member_refund_data.get("refundedCredits") == 3000
+              and after_member.get("creditBalance") == before_member_refund - 3000
+              and after_member.get("membership", {}).get("level") == "free"
+              and after_member.get("membership", {}).get("expireAt") is None)
+        check("重复会员退款拒绝",
+              refund_order(c, "membership", second_member.get("id")).status_code == 409)
+        with sqlite3.connect(DB, timeout=30) as conn:
+            member_row = conn.execute("SELECT memberLevel, memberExpireAt FROM User WHERE id = ?",
+                                      (test_user_id,)).fetchone()
+            member_ledger = conn.execute(
+                "SELECT amount FROM CreditLedger WHERE userId = ? AND note LIKE ? "
+                "ORDER BY createdAt DESC LIMIT 1",
+                (test_user_id, f"%{second_member.get('outTradeNo')}%")).fetchone()
+        check("会员退款数据库冲正", member_row == ("free", None)
+              and bool(member_ledger and member_ledger[0] == -3000))
+
+        real_order, _ = paid_recharge(order_user)
+        with sqlite3.connect(DB, timeout=30) as conn:
+            conn.execute("UPDATE RechargeOrder SET provider = 'wechat', updatedAt = CURRENT_TIMESTAMP "
+                         "WHERE id = ?", (real_order.get("id"),))
+            conn.commit()
+        real_result = refund_order(c, "recharge", real_order.get("id"))
+        check("真实渠道提示商户后台退款", real_result.status_code == 409
+              and "商户后台" in real_result.json().get("error", ""),
+              real_result.json().get("error", ""))
+        with sqlite3.connect(DB, timeout=30) as conn:
+            real_row = conn.execute("SELECT provider, status FROM RechargeOrder WHERE id = ?",
+                                    (real_order.get("id"),)).fetchone()
+        check("真实渠道拒绝后订单不变", real_row == ("wechat", "PAID"))
+
+        insufficient_order, _ = paid_recharge(order_user)
+        with sqlite3.connect(DB, timeout=30) as conn:
+            conn.execute("UPDATE CreditAccount SET balance = 0, updatedAt = CURRENT_TIMESTAMP "
+                         "WHERE userId = ?", (test_user_id,))
+            conn.commit()
+        insufficient = refund_order(c, "recharge", insufficient_order.get("id"))
+        check("积分不足时拒绝充值退款", insufficient.status_code == 409
+              and "余额不足" in insufficient.json().get("error", ""),
+              insufficient.json().get("error", ""))
+        with sqlite3.connect(DB, timeout=30) as conn:
+            insufficient_row = conn.execute("SELECT status FROM RechargeOrder WHERE id = ?",
+                                            (insufficient_order.get("id"),)).fetchone()
+        check("积分不足不修改订单状态", bool(insufficient_row and insufficient_row[0] == "PAID"))
+
+        recharge_list = c.get(f"{BASE}/api/admin/orders?kind=recharge&status=PAID")
+        membership_list = c.get(f"{BASE}/api/admin/orders?kind=membership&status=REFUNDED")
+        recharge_orders = recharge_list.json().get("orders", []) if recharge_list.status_code == 200 else []
+        membership_orders = membership_list.json().get("orders", []) if membership_list.status_code == 200 else []
+        check("充值状态筛选与会员退款列表", recharge_list.status_code == 200
+              and all(order.get("status") == "PAID" for order in recharge_orders)
+              and any(order.get("id") == second_member.get("id") for order in membership_orders))
+        check("订单管理页面可访问", c.get(f"{BASE}/admin/orders").status_code == 200)
 
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)
