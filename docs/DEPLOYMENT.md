@@ -1,6 +1,6 @@
 # 生产部署与回滚指南（S6）
 
-> 适用版本：v0.29.x。开发环境见根目录 [README](../README.md)，功能总纲见 [DEVELOPMENT-MASTER-PLAN](DEVELOPMENT-MASTER-PLAN.md)。
+> 适用版本：v0.30.x。开发环境见根目录 [README](../README.md)，功能总纲见 [DEVELOPMENT-MASTER-PLAN](DEVELOPMENT-MASTER-PLAN.md)。
 
 ## 1. 部署形态与硬性约束
 
@@ -22,7 +22,8 @@
 | --- | --- | --- |
 | `DATABASE_URL` | 是 | 生产改为 `postgresql://user:pass@host:5432/medbuddy?schema=public` |
 | `AUTH_SECRET` | 是 | ≥16 字符强随机（`openssl rand -base64 32`）；缺失时登录直接抛错，不会裸奔 |
-| `SMS_PROVIDER` | 是 | 见 §5 阻塞项 1：当前仅 `dev` 可用 |
+| `SMS_PROVIDER` | 是 | 生产填 `aliyun`；`dev` 仅联调（验证码直接返回页面） |
+| `ALIYUN_SMS_*` | 条件 | `SMS_PROVIDER=aliyun` 时必填：ACCESS_KEY_ID / ACCESS_KEY_SECRET / SIGN_NAME / TEMPLATE_CODE（模板需含 `${code}`），REGION 默认 `cn-hangzhou`；未配置或发送失败会明确报错，不会静默收不到码 |
 | `AI_SERVICE_URL` | 是 | 内网地址，如 `http://127.0.0.1:8000` 或 `http://ai:8000` |
 | `ADMIN_PHONES` | 是 | 运营后台管理员手机号白名单，逗号分隔；登录时自动提权 |
 | `PAYMENT_PROVIDER` | 是 | `wechat` / `alipay`；生产下 `mock` 会被禁用 |
@@ -106,7 +107,7 @@ location / {
 
 ## 5. 上线前阻塞项（未完成不要对外放量）
 
-1. **真实短信通道未接入**：`SMS_PROVIDER != dev` 时验证码只入库、不发短信（`apps/web/src/lib/sms.ts` 中 TODO），用户无法收到验证码。上线前必须接入阿里云/腾讯云 SMS 适配器并配置签名与模板。
+1. **短信通道需配置真实账号**：阿里云 SMS 适配器已就绪（`apps/web/src/lib/sms/aliyun.ts`，`SMS_PROVIDER=aliyun`）。上线前需在阿里云开通短信服务、过审签名与模板（模板含 `${code}`），并配置 `ALIYUN_SMS_*`；未配置会返回 503 明确报错，发送失败返回 502，不再静默吞码。
 2. **支付必须配置真实渠道**：生产环境 `mock` 支付通道被禁用（下单会报错），未配置微信/支付宝商户号时充值/会员购买不可用。
 3. **多实例前先接队列**：当前任务执行绑定单个 Node 进程，重启/扩缩容会丢失在途任务。
 

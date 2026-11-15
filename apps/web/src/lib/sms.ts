@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { sendAliyunSms } from "@/lib/sms/aliyun";
 
 /** 验证码有效期（分钟）、同号重发间隔（秒）与单码最大失败次数 */
 export const CODE_TTL_MIN = 5;
@@ -9,7 +10,8 @@ export const MAX_CODE_ATTEMPTS = 5;
 /**
  * 生成并存储短信验证码。
  * 开发模式（SMS_PROVIDER=dev）：验证码明文返回给调用方，方便联调；
- * 生产模式（SMS_PROVIDER=aliyun 等）：只入库，由适配器真实下发（TODO S5 前接入）。
+ * 生产模式（SMS_PROVIDER=aliyun）：调用阿里云真实下发，未配置或发送失败会抛出错误，
+ * 绝不静默吞掉（避免用户收不到码却以为已发送）。
  */
 export async function issueSmsCode(
   phone: string,
@@ -22,7 +24,7 @@ export async function issueSmsCode(
 
   // 使用加密安全随机数，避免 Math.random 可预测
   const code = String(crypto.randomInt(100000, 1000000));
-  const provider = process.env.SMS_PROVIDER ?? "dev";
+  const provider = (process.env.SMS_PROVIDER ?? "dev").trim().toLowerCase();
 
   await prisma.smsCode.create({
     data: {
@@ -35,8 +37,12 @@ export async function issueSmsCode(
 
   if (provider === "dev") return { code, devCode: code };
 
-  // TODO(S5 前后): 接入阿里云 SMS / 腾讯云 SMS 适配器
-  return { code, devCode: null };
+  if (provider === "aliyun") {
+    await sendAliyunSms(phone, code);
+    return { code, devCode: null };
+  }
+
+  throw new Error("SMS_PROVIDER_UNSUPPORTED");
 }
 
 export type SmsCheckResult = "OK" | "INVALID" | "LOCKED";

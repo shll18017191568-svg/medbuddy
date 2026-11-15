@@ -20,6 +20,21 @@ export async function POST(req: Request) {
     if (err instanceof Error && err.message === "SEND_TOO_FREQUENT") {
       return NextResponse.json({ error: "发送过于频繁，请 60 秒后重试" }, { status: 429 });
     }
+    if (err instanceof Error && err.message === "SMS_NOT_CONFIGURED") {
+      return NextResponse.json(
+        { error: "短信服务未配置：请设置 ALIYUN_SMS_* 环境变量后重启" },
+        { status: 503 },
+      );
+    }
+    if (err instanceof Error && err.message === "SMS_PROVIDER_UNSUPPORTED") {
+      return NextResponse.json(
+        { error: "短信服务商配置不支持（当前仅支持 dev / aliyun）" },
+        { status: 503 },
+      );
+    }
+    if (err instanceof Error && err.message === "SMS_SEND_FAILED") {
+      return NextResponse.json({ error: "短信发送失败，请稍后重试" }, { status: 502 });
+    }
     console.error("[sms/send]", err);
     return NextResponse.json({ error: "发送失败，请稍后重试" }, { status: 500 });
   }
