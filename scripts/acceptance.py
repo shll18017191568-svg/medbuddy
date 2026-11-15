@@ -590,7 +590,7 @@ with httpx.Client(timeout=90) as c:
     check("ASK 跳过审核直达 delivered", ask_delivered is not None
           and ask_delivered["status"] == "delivered" and not ask_saw_review,
           f"status={(ask_delivered or {}).get('status')}")
-    arj = json.loads(ask_delivered["resultJson"]) if ask_delivered else {}
+    arj = json.loads((ask_delivered or {}).get("resultJson") or "{}")
     check("ASK 结果为 answer 且非空", arj.get("kind") == "answer"
           and isinstance(arj.get("answer"), str) and len(arj["answer"]) > 0,
           f"kind={arj.get('kind')}")
