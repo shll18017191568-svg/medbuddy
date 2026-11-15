@@ -164,12 +164,26 @@ model Task {
   precheckJson   String? // 预审发现项明细（JSON）
   precheckAt     DateTime?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages TaskMessage[]
 
   @@index([reviewStatus])
 
   @@index([userId, createdAt])
   @@index([status])
+}
+
+/// 任务追问会话：仅交付后的定向回传任务可对话，按时间顺序留存
+model TaskMessage {
+  id        String   @id @default(cuid())
+  taskId    String
+  role      String // user | assistant
+  content   String
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
 }
 
 /// 积分流水：所有余额变动必须留痕（对账依据）

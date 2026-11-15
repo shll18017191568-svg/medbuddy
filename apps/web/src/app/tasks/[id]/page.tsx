@@ -32,10 +32,22 @@ type Task = {
   deliveredAt: string | null;
 };
 
+type FollowUpMessage = {
+  id: string;
+  role: string;
+  content: string;
+  createdAt: string;
+};
+
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [task, setTask] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 交付后追问会话
+  const [messages, setMessages] = useState<FollowUpMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/tasks/${id}`);
@@ -50,6 +62,51 @@ export default function TaskDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 交付后加载追问记录
+  useEffect(() => {
+    if (task?.status !== TaskStatus.DELIVERED) return;
+    fetch(`/api/tasks/${id}/messages`)
+      .then((res) => (res.ok ? res.json() : { messages: [] }))
+      .then((data) => setMessages(data.messages ?? []))
+      .catch(() => setMessages([]));
+  }, [task?.status, id]);
+
+  async function sendFollowUp() {
+    if (!task || !draft.trim() || sending) return;
+    const content = draft.trim();
+    const temp: FollowUpMessage = {
+      id: `tmp-${Date.now()}`,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+    };
+    setSending(true);
+    setChatError(null);
+    setDraft("");
+    setMessages((prev) => [...prev, temp]);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setChatError(data.error ?? "发送失败，请重试");
+        setMessages((prev) => prev.filter((m) => m.id !== temp.id));
+        setDraft(content);
+        return;
+      }
+      setMessages((prev) => [...prev.filter((m) => m.id !== temp.id), ...data.messages]);
+    } catch {
+      setChatError("网络异常，请重试");
+      setMessages((prev) => prev.filter((m) => m.id !== temp.id));
+      setDraft(content);
+    } finally {
+      setSending(false);
+    }
+  }
 
   // 非终态时 3s 轮询直到回传
   const active = task && [TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.REVIEWING].includes(task.status);
@@ -561,6 +618,57 @@ export default function TaskDetailPage() {
           <p className="mt-3 text-xs text-slate-400">
             AI 辅助生成，仅供参考；重要决策请以原始文献与临床判断为准
           </p>
+        </section>
+      )}
+
+      {/* 交付后追问会话 */}
+      {task.status === TaskStatus.DELIVERED && (
+        <section className="mt-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-700">追问</h2>
+            <span className="text-xs text-slate-400">交付后免费追问，本任务最多 20 条</span>
+          </div>
+
+          <div className="mt-3 space-y-3">
+            {messages.length === 0 && (
+              <p className="text-sm text-slate-400">还没有追问，可以就本次交付结果继续提问。</p>
+            )}
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`rounded-lg p-3 text-sm ${
+                  m.role === "user" ? "bg-blue-50 text-slate-700" : "bg-slate-50 text-slate-700"
+                }`}
+              >
+                <p className="text-xs font-semibold text-slate-500">
+                  {m.role === "user" ? "我" : "AI 助手"}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap leading-relaxed">{m.content}</p>
+              </div>
+            ))}
+          </div>
+
+          {chatError && (
+            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{chatError}</p>
+          )}
+
+          <div className="mt-3 flex gap-2">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={3}
+              maxLength={2000}
+              placeholder="就本次交付结果继续提问…"
+              className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+            />
+            <button
+              onClick={sendFollowUp}
+              disabled={sending || !draft.trim()}
+              className="self-end rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {sending ? "发送中…" : "发送"}
+            </button>
+          </div>
         </section>
       )}
     </main>

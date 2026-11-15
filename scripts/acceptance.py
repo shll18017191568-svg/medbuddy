@@ -597,6 +597,40 @@ with httpx.Client(timeout=90) as c:
     check("ASK 扣费金额正确", bal_ask_start - bal_ask_end == ask_cost,
           f"before={bal_ask_start} after={bal_ask_end} cost={ask_cost}")
 
+    print("\n[19] 交付后追问会话")
+    gm = c.get(f"{BASE}/api/tasks/{atid}/messages")
+    check("追问记录初始为空", gm.status_code == 200 and gm.json()["messages"] == [],
+          f"HTTP {gm.status_code}")
+    pm = c.post(f"{BASE}/api/tasks/{atid}/messages",
+                json={"content": "这条结论的证据强度如何？需要注意什么？"})
+    check("追问提交成功", pm.status_code == 200, f"HTTP {pm.status_code}")
+    pdata = pm.json()
+    pmsgs = pdata.get("messages", [])
+    check("追问返回用户+助手两条", len(pmsgs) == 2 and pmsgs[0]["role"] == "user"
+          and pmsgs[1]["role"] == "assistant" and len(pmsgs[1]["content"]) > 0,
+          f"count={len(pmsgs)}")
+    check("追问剩余次数正确", pdata.get("remaining") == 19, f"remaining={pdata.get('remaining')}")
+    gm2 = c.get(f"{BASE}/api/tasks/{atid}/messages")
+    check("追问记录已落库", len(gm2.json()["messages"]) == 2,
+          f"count={len(gm2.json()['messages'])}")
+
+    nc = c.post(f"{BASE}/api/tasks", json={
+        "type": "literature_search", "mode": "plan",
+        "title": "验收-未交付追问", "prompt": "测试未交付任务追问拦截",
+    })
+    ntid = nc.json()["task"]["id"]
+    nm = c.post(f"{BASE}/api/tasks/{ntid}/messages", json={"content": "未交付可以追问吗"})
+    check("未交付任务追问被拒 409", nm.status_code == 409, f"HTTP {nm.status_code}")
+    em = c.post(f"{BASE}/api/tasks/{atid}/messages", json={"content": "   "})
+    check("空追问被拒 400", em.status_code == 400, f"HTTP {em.status_code}")
+
+    with httpx.Client(timeout=60) as outsider:
+        login(outsider, "13618801001")
+        om = outsider.get(f"{BASE}/api/tasks/{atid}/messages")
+        check("他人追问记录不可见 404", om.status_code == 404, f"HTTP {om.status_code}")
+        ow = outsider.post(f"{BASE}/api/tasks/{atid}/messages", json={"content": "越权追问"})
+        check("他人不可追问 404", ow.status_code == 404, f"HTTP {ow.status_code}")
+
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)
 failed = len(results) - passed
