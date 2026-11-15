@@ -36,6 +36,18 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000   # http://localhost:8000/docs
 ```
 
+## 生产部署
+
+```bash
+npm ci
+npm exec --workspace apps/web prisma generate
+npm run db:push
+npm run build --workspace apps/web
+npm run start --workspace apps/web
+```
+
+必须部署为常驻 Node 进程（不可用 Serverless），AI 服务仅内网开放。环境变量清单、SQLite→PostgreSQL 切换、上线前阻塞项与回滚流程见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+
 ## 开发约定
 
 - 每张任务卡一个分支，squash merge 到 main
