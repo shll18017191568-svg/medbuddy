@@ -104,6 +104,378 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
   },
 };
 
+/** 科研技能目录（总纲 §5.2：40 项技能注册即免费解锁，作为获客钩子） */
+export type SkillCategoryKey =
+  | "literature"
+  | "data"
+  | "design"
+  | "writing"
+  | "communication"
+  | "avatar"
+  | "grant"
+  | "utility";
+
+export const SKILL_CATEGORIES: { key: SkillCategoryKey; name: string }[] = [
+  { key: "literature", name: "文献与情报" },
+  { key: "data", name: "数据分析与可视化" },
+  { key: "design", name: "科研设计" },
+  { key: "writing", name: "论文写作" },
+  { key: "communication", name: "学术传播" },
+  { key: "avatar", name: "数字人" },
+  { key: "grant", name: "基金与申报" },
+  { key: "utility", name: "科研效率" },
+];
+
+export interface SkillItem {
+  id: string;
+  name: string;
+  category: SkillCategoryKey;
+  description: string;
+  /** live：已上线可用；coming：陆续上线 */
+  status: "live" | "coming";
+  /** 已上线技能的入口（任务类型则指向新建任务页并预选） */
+  href?: string;
+  /** 关联任务类型，用于展示单次消耗积分 */
+  taskType?: TaskType;
+}
+
+export const SKILL_CATALOG: SkillItem[] = [
+  // 文献与情报
+  {
+    id: "lit-search",
+    name: "文献检索",
+    category: "literature",
+    description: "一句话转专业检索式，PubMed 三库路由，只回真实 PMID",
+    status: "live",
+    href: "/tasks/new?type=literature_search",
+    taskType: TaskType.LITERATURE_SEARCH,
+  },
+  {
+    id: "lit-digest",
+    name: "文献解读",
+    category: "literature",
+    description: "PMID 或全文 → 五段式结构化拆解，缺失信息标 Not specified",
+    status: "live",
+    href: "/tasks/new?type=literature_digest",
+    taskType: TaskType.LITERATURE_DIGEST,
+  },
+  {
+    id: "ref-manage",
+    name: "参考文献管理",
+    category: "literature",
+    description: "PMID 清单自动补题录，6 种引用格式，导出 BibTeX/RIS",
+    status: "live",
+    href: "/tasks/new?type=reference_format",
+    taskType: TaskType.REFERENCE_FORMAT,
+  },
+  {
+    id: "guideline",
+    name: "指南共识速查",
+    category: "literature",
+    description: "按疾病与关键词定位最新指南/共识条目并标注版本",
+    status: "coming",
+  },
+  {
+    id: "hot-topic",
+    name: "研究热点追踪",
+    category: "literature",
+    description: "近 12 个月高被引与高频关键词聚类，输出选题窗口",
+    status: "coming",
+  },
+  {
+    id: "topic-screen",
+    name: "选题可行性预判",
+    category: "literature",
+    description: "结合文献存量与竞争强度评估选题创新空间",
+    status: "coming",
+  },
+
+  // 数据分析与可视化
+  {
+    id: "chart",
+    name: "学术绘图",
+    category: "data",
+    description: "火山/热图/箱线/小提琴/散点/折线/柱状/直方 8 类图，顶刊配色",
+    status: "live",
+    href: "/analysis",
+    taskType: TaskType.CHART,
+  },
+  {
+    id: "stats-desc",
+    name: "统计描述与检验",
+    category: "data",
+    description: "自动识别变量类型，给出描述统计与检验方法建议",
+    status: "coming",
+  },
+  {
+    id: "survival",
+    name: "生存分析",
+    category: "data",
+    description: "KM 曲线、Log-rank 与 Cox 回归结果整理及配图",
+    status: "coming",
+  },
+  {
+    id: "roc",
+    name: "ROC 与诊断效能",
+    category: "data",
+    description: "ROC/AUC、敏感度特异度与最佳截断值计算",
+    status: "coming",
+  },
+  {
+    id: "enrichment",
+    name: "富集与通路可视化",
+    category: "data",
+    description: "GO/KEGG 富集条形图与气泡图，附通路层级解读",
+    status: "coming",
+  },
+  {
+    id: "figure-polish",
+    name: "图表美化与期刊排版",
+    category: "data",
+    description: "按目标期刊统一字号、线宽、配色与多图拼版",
+    status: "coming",
+  },
+
+  // 科研设计
+  {
+    id: "experiment",
+    name: "实验设计",
+    category: "design",
+    description: "核心文献或课题 → 主/子实验、分组表、检测指标与预期结果",
+    status: "live",
+    href: "/tasks/new?type=experiment_design",
+    taskType: TaskType.EXPERIMENT_DESIGN,
+  },
+  {
+    id: "clinical",
+    name: "临床方案设计",
+    category: "design",
+    description: "PICO + 国自然/伦理申报结构，含纳排、结局、样本量与统计",
+    status: "live",
+    href: "/tasks/new?type=clinical_design",
+    taskType: TaskType.CLINICAL_DESIGN,
+  },
+  {
+    id: "sample-size",
+    name: "样本量估算",
+    category: "design",
+    description: "按效应量与把握度给出每组样本量及计算过程",
+    status: "coming",
+  },
+  {
+    id: "sap",
+    name: "统计分析计划",
+    category: "design",
+    description: "预定义分析集、主次结局、缺失值与敏感性分析",
+    status: "coming",
+  },
+  {
+    id: "crf",
+    name: "CRF 与数据字典",
+    category: "design",
+    description: "按方案生成病例报告表字段与变量定义",
+    status: "coming",
+  },
+  {
+    id: "data-mgmt",
+    name: "随访与数据管理",
+    category: "design",
+    description: "随访节点、数据核查规则与质量监查清单",
+    status: "coming",
+  },
+
+  // 论文写作
+  {
+    id: "review",
+    name: "综述写作",
+    category: "writing",
+    description: "自动建库检索并生成带真实 PMID 引用的综述初稿",
+    status: "live",
+    href: "/tasks/new?type=review_draft",
+    taskType: TaskType.REVIEW_DRAFT,
+  },
+  {
+    id: "original",
+    name: "论著写作（IMRaD）",
+    category: "writing",
+    description: "按 IMRaD 结构搭骨架，逐段提示所需数据与文献",
+    status: "coming",
+  },
+  {
+    id: "rewrite",
+    name: "文风改写",
+    category: "writing",
+    description: "6 种文风改写，事实与数值零丢失校验",
+    status: "live",
+    href: "/tasks/new?type=style_rewrite",
+    taskType: TaskType.STYLE_REWRITE,
+  },
+  {
+    id: "abstract",
+    name: "摘要与亮点提炼",
+    category: "writing",
+    description: "结构化摘要 + 期刊要求的 highlights 要点",
+    status: "coming",
+  },
+  {
+    id: "response",
+    name: "审稿意见回复",
+    category: "writing",
+    description: "逐条拆解审稿意见，生成回复信与修改说明",
+    status: "coming",
+  },
+  {
+    id: "journal",
+    name: "投稿期刊匹配",
+    category: "writing",
+    description: "按主题、影响因子与审稿周期推荐目标期刊",
+    status: "coming",
+  },
+
+  // 学术传播
+  {
+    id: "wechat-article",
+    name: "科普图文",
+    category: "communication",
+    description: "小红书/科普长图文，自动去重复编号并附免责声明",
+    status: "live",
+    href: "/tasks/new?type=content_gen",
+    taskType: TaskType.CONTENT_GEN,
+  },
+  {
+    id: "short-video",
+    name: "短视频脚本",
+    category: "communication",
+    description: "抖音/视频号镜头表，时长由代码累加，不承诺疗效",
+    status: "live",
+    href: "/tasks/new?type=content_gen",
+    taskType: TaskType.CONTENT_GEN,
+  },
+  {
+    id: "patient-card",
+    name: "患教卡片",
+    category: "communication",
+    description: "门诊/病房可发的要点卡片，语言通俗不含剂量建议",
+    status: "live",
+    href: "/tasks/new?type=content_gen",
+    taskType: TaskType.CONTENT_GEN,
+  },
+  {
+    id: "official-account",
+    name: "公众号图文",
+    category: "communication",
+    description: "公众号排版结构 + 标题候选 + 配图建议",
+    status: "live",
+    href: "/tasks/new?type=content_gen",
+    taskType: TaskType.CONTENT_GEN,
+  },
+  {
+    id: "conference",
+    name: "学术会议摘要",
+    category: "communication",
+    description: "按会议模板压缩成摘要与壁报要点",
+    status: "coming",
+  },
+  {
+    id: "poster",
+    name: "学术海报文案",
+    category: "communication",
+    description: "A0/A1 海报分区文案与图表排布建议",
+    status: "coming",
+  },
+
+  // 数字人
+  {
+    id: "avatar-chat",
+    name: "数字人对话",
+    category: "avatar",
+    description: "医疗文献大模型驱动，支持多轮追问与参考文献溯源",
+    status: "live",
+    href: "/chat",
+    taskType: TaskType.AVATAR_CHAT,
+  },
+  {
+    id: "avatar-video",
+    name: "数字人播报",
+    category: "avatar",
+    description: "主题/稿件 → 口播稿 + 分镜字幕表 + 供应商合成任务单",
+    status: "live",
+    href: "/avatar",
+    taskType: TaskType.AVATAR_VIDEO,
+  },
+  {
+    id: "avatar-face",
+    name: "形象克隆",
+    category: "avatar",
+    description: "上传真人出镜视频定制专属形象，需授权材料核验",
+    status: "live",
+    href: "/avatar",
+    taskType: TaskType.AVATAR_CLONE,
+  },
+  {
+    id: "avatar-voice",
+    name: "声音克隆",
+    category: "avatar",
+    description: "1-2 分钟清晰人声素材复刻音色，需授权材料核验",
+    status: "live",
+    href: "/avatar",
+    taskType: TaskType.AVATAR_CLONE,
+  },
+
+  // 基金与申报
+  {
+    id: "grant-frame",
+    name: "国自然标书框架",
+    category: "grant",
+    description: "按项目类型生成章节框架与各节写作要点",
+    status: "coming",
+  },
+  {
+    id: "rationale",
+    name: "立项依据撰写",
+    category: "grant",
+    description: "结合文献库生成立项依据并附真实引用",
+    status: "coming",
+  },
+  {
+    id: "tech-route",
+    name: "技术路线图",
+    category: "grant",
+    description: "把研究内容转成可绘制的技术路线结构",
+    status: "coming",
+  },
+  {
+    id: "grant-check",
+    name: "申报材料自查",
+    category: "grant",
+    description: "形式审查清单：预算、简历、附件与限项",
+    status: "coming",
+  },
+
+  // 科研效率
+  {
+    id: "translate",
+    name: "中英互译润色",
+    category: "utility",
+    description: "医学术语准确的中英互译，按期刊语言风格润色",
+    status: "coming",
+  },
+  {
+    id: "batch-pmid",
+    name: "PMID/DOI 批量整理",
+    category: "utility",
+    description: "批量核验并统一为指定引用格式，导出表格",
+    status: "coming",
+  },
+];
+
+/** 技能包统计（首页与技能中心展示） */
+export const SKILL_PACK_STATS = {
+  total: SKILL_CATALOG.length,
+  live: SKILL_CATALOG.filter((s) => s.status === "live").length,
+  coming: SKILL_CATALOG.filter((s) => s.status === "coming").length,
+};
+
 /** ASK 模式（仅问答）固定低价：不产生正式交付物、不走人工审核，鼓励轻量咨询 */
 export const ASK_PRICE = 10;
 

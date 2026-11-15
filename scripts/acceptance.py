@@ -1,6 +1,7 @@
 """验收脚本：MedBuddy 全功能 API 与数据库验收（跑完自动汇总）。验收后可删除。"""
 import json
 from pathlib import Path
+import re
 import sqlite3
 import sys
 import time
@@ -630,6 +631,17 @@ with httpx.Client(timeout=90) as c:
         check("他人追问记录不可见 404", om.status_code == 404, f"HTTP {om.status_code}")
         ow = outsider.post(f"{BASE}/api/tasks/{atid}/messages", json={"content": "越权追问"})
         check("他人不可追问 404", ow.status_code == 404, f"HTTP {ow.status_code}")
+
+    print("\n[20] 技能中心（40 技能免费领取页）")
+    sk = httpx.get(f"{BASE}/skills", timeout=60)
+    check("技能中心公开可访问", sk.status_code == 200, f"HTTP {sk.status_code}")
+    sk_html = re.sub(r"<!--.*?-->", "", sk.text)  # 去掉 React SSR 文本节点注释
+    check("技能包总量 40 项", "40 项科研技能" in sk_html and "全部 40" in sk_html)
+    check("已上线技能可见", "文献检索" in sk_html and "数字人播报" in sk_html,
+          "文献检索/数字人播报")
+    check("未上线技能标注", "即将上线" in sk_html)
+    check("免费领取引导", "注册即" in sk_html and "手机号免费领取" in sk_html)
+    check("技能使用条款挂链", "/legal/disclaimer" in sk_html)
 
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)

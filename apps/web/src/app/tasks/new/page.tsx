@@ -20,6 +20,10 @@ export default function NewTaskPage() {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setBalance(d.user.creditBalance))
       .catch(() => {});
+
+    // 从技能中心跳转时预选任务类型（?type=literature_search）
+    const fromUrl = new URLSearchParams(window.location.search).get("type");
+    if (fromUrl && fromUrl in TASK_TYPE_META) setType(fromUrl as TaskType);
   }, []);
 
   const meta = TASK_TYPE_META[type];
