@@ -237,6 +237,77 @@ with httpx.Client(timeout=90) as c:
     else:
         check("空意见驳回被拦截", False, (to_reject or {}).get("status", "超时"))
 
+    print("\n[14] 支付链路（积分充值 + 会员开通，可重复运行）")
+    bal0 = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    rc = c.post(f"{BASE}/api/credits/recharge", json={"packageId": "starter", "provider": "mock"})
+    order = rc.json().get("order", {}) if rc.status_code == 200 else {}
+    check("充值下单返回待支付订单", rc.status_code == 200
+          and order.get("amountFen") == 1000 and order.get("status") == "PENDING"
+          and str(order.get("outTradeNo", "")).startswith("MB"),
+          f"HTTP {rc.status_code} {order.get('outTradeNo')}")
+
+    pay = c.post(f"{BASE}/api/payments/mock/pay", json={"outTradeNo": order.get("outTradeNo")})
+    bal1 = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    check("模拟支付入账 1000 积分", pay.status_code == 200 and bal1 == bal0 + 1000,
+          f"{bal0} -> {bal1}")
+
+    c.post(f"{BASE}/api/payments/mock/pay", json={"outTradeNo": order.get("outTradeNo")})
+    dup = c.post(f"{BASE}/api/payments/callback/mock", json={
+        "outTradeNo": order.get("outTradeNo"),
+        "transactionId": f"MOCK-{order.get('outTradeNo')}",
+        "amountFen": 1000, "success": True})
+    bal2 = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    check("重复支付与重复回调不重复入账", dup.text == "success" and bal2 == bal1,
+          f"{bal1} -> {bal2}")
+
+    info = c.get(f"{BASE}/api/payments/orders/{order.get('id')}")
+    check("订单状态查询为已支付", info.status_code == 200
+          and info.json().get("order", {}).get("status") == "PAID",
+          f"HTTP {info.status_code}")
+
+    rc2 = c.post(f"{BASE}/api/credits/recharge", json={"packageId": "starter"})
+    order2 = rc2.json().get("order", {}) if rc2.status_code == 200 else {}
+    tampered = c.post(f"{BASE}/api/payments/callback/mock", json={
+        "outTradeNo": order2.get("outTradeNo"),
+        "transactionId": f"MOCK-{order2.get('outTradeNo')}",
+        "amountFen": 1, "success": True})
+    bal3 = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    check("篡改金额回调被拒绝且不入账", tampered.text == "failure" and bal3 == bal2,
+          f"回调 {tampered.text} / 余额 {bal2} -> {bal3}")
+
+    m0 = c.get(f"{BASE}/api/membership").json()
+    current = m0.get("current") or {}
+    old_expire = current.get("expireAt")
+    # 已是旗舰版时只能续费旗舰（降级购买应被拦截），否则购买专业版
+    is_flagship = current.get("level") == "flagship" and bool(old_expire)
+    buy_level = "flagship" if is_flagship else "pro"
+    expect_fen = 29900 if is_flagship else 9900
+    expect_credits = 10000 if is_flagship else 3000
+
+    bad_buy = c.post(f"{BASE}/api/membership/subscribe",
+                     json={"level": "pro" if is_flagship else "free"})
+    check("降级/非法购买被拒绝", bad_buy.status_code == 400,
+          f"当前 {current.get('level')} HTTP {bad_buy.status_code}")
+
+    sub = c.post(f"{BASE}/api/membership/subscribe", json={"level": buy_level, "provider": "mock"})
+    mo = sub.json().get("order", {}) if sub.status_code == 200 else {}
+    bal_before_member = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    check("会员下单成功且支付前不赠积分", sub.status_code == 200
+          and str(mo.get("outTradeNo", "")).startswith("MM") and mo.get("amountFen") == expect_fen
+          and bal_before_member == bal3,
+          f"HTTP {sub.status_code} {mo.get('outTradeNo')} 购买 {buy_level}")
+
+    mpay = c.post(f"{BASE}/api/payments/mock/pay", json={"outTradeNo": mo.get("outTradeNo")})
+    m1 = c.get(f"{BASE}/api/membership").json()
+    new_expire = (m1.get("current") or {}).get("expireAt")
+    check(f"会员支付后赠送 {expect_credits} 积分", mpay.status_code == 200
+          and m1.get("balance") == bal_before_member + expect_credits,
+          f"{bal_before_member} -> {m1.get('balance')}")
+    check("会员等级生效", (m1.get("current") or {}).get("level") in ("pro", "flagship"),
+          f"level={(m1.get('current') or {}).get('level')}")
+    check("会员到期时间顺延", bool(new_expire) and (not old_expire or new_expire > old_expire),
+          f"{old_expire} -> {new_expire}")
+
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)
 failed = len(results) - passed

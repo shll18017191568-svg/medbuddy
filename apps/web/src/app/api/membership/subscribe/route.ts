@@ -31,6 +31,19 @@ export async function POST(req: Request) {
   const level = parsed.data.level;
   const plan = MEMBER_PLANS[level];
 
+  // 高等级会员未过期时不允许降级购买（避免旗舰版被专业版订单覆盖）
+  const rank: Record<string, number> = { free: 0, pro: 1, flagship: 2 };
+  const activeLevel =
+    user.memberExpireAt && user.memberExpireAt.getTime() > Date.now()
+      ? user.memberLevel
+      : "free";
+  if ((rank[activeLevel] ?? 0) > rank[level]) {
+    return NextResponse.json(
+      { error: "当前为旗舰版且未过期，无需购买专业版" },
+      { status: 400 },
+    );
+  }
+
   const { adapter, fallback } = resolvePaymentProvider(parsed.data.provider);
   if (!adapter.isConfigured()) {
     return NextResponse.json(
