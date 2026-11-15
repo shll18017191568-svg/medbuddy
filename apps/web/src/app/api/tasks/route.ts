@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runTask } from "@/lib/task-runner";
 import { effectiveLevel } from "@/lib/membership";
-import { TASK_TYPE_META, TaskMode, TaskStatus, TaskType, applyMemberDiscount } from "@medbuddy/shared";
+import { TASK_TYPE_META, TaskMode, TaskStatus, TaskType, applyMemberDiscount, ASK_PRICE } from "@medbuddy/shared";
 
 const bodySchema = z.object({
   type: z.nativeEnum(TaskType),
@@ -28,7 +28,8 @@ export async function POST(req: Request) {
   const { type, mode, title, prompt } = parsed.data;
   // 会员折扣在服务端统一计算，前端展示价格仅供参考
   const level = effectiveLevel(user.memberLevel, user.memberExpireAt);
-  const basePrice = TASK_TYPE_META[type].price;
+  // ASK 模式走固定低价（轻量问答，不产生正式交付物），其余按任务类型定价
+  const basePrice = mode === TaskMode.ASK ? ASK_PRICE : TASK_TYPE_META[type].price;
   const price = applyMemberDiscount(basePrice, level);
 
   try {
@@ -67,6 +68,7 @@ export async function POST(req: Request) {
           creditCost: price,
         },
       });
+      const label = mode === TaskMode.ASK ? "问答咨询" : TASK_TYPE_META[type].label;
       await tx.creditLedger.create({
         data: {
           userId: user.id,
@@ -76,8 +78,8 @@ export async function POST(req: Request) {
           balanceAfter,
           note:
             price === basePrice
-              ? `任务扣费：${TASK_TYPE_META[type].label}`
-              : `任务扣费：${TASK_TYPE_META[type].label}（会员价 ${price}/${basePrice}）`,
+              ? `任务扣费：${label}`
+              : `任务扣费：${label}（会员价 ${price}/${basePrice}）`,
         },
       });
       await tx.creditAccount.update({

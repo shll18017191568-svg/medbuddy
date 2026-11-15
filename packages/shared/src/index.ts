@@ -104,6 +104,9 @@ export const TASK_TYPE_META: Record<TaskType, { label: string; price: number; de
   },
 };
 
+/** ASK 模式（仅问答）固定低价：不产生正式交付物、不走人工审核，鼓励轻量咨询 */
+export const ASK_PRICE = 10;
+
 /** 任务状态中文展示名 */
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   [TaskStatus.DRAFT]: "待确认",

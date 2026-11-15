@@ -565,6 +565,38 @@ with httpx.Client(timeout=90) as c:
     double = c.post(f"{BASE}/api/tasks/{dtid}/confirm")
     check("重复确认返回 409", double.status_code == 409, f"HTTP {double.status_code}")
 
+    print("\n[18] ASK 模式：仅问答（低价 + 跳过审核）")
+    bal_ask_start = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    ac = c.post(f"{BASE}/api/tasks", json={
+        "type": "literature_search", "mode": "ask",
+        "title": "验收-ASK问答", "prompt": "什么是铁死亡？简述其在肿瘤免疫中的作用",
+    })
+    check("ASK 任务创建成功", ac.status_code == 200, f"HTTP {ac.status_code}")
+    atask = ac.json()["task"]
+    atid = atask["id"]
+    check("ASK 扣费为低价(≤10)", 0 < atask["creditCost"] <= 10, f"cost={atask['creditCost']}")
+    ask_cost = atask["creditCost"]
+    ask_delivered = None
+    ask_saw_review = False
+    for _ in range(30):
+        time.sleep(2)
+        at = c.get(f"{BASE}/api/tasks/{atid}").json()["task"]
+        if at["status"] == "reviewing":
+            ask_saw_review = True
+        if at["status"] in ("delivered", "failed"):
+            ask_delivered = at
+            break
+    check("ASK 跳过审核直达 delivered", ask_delivered is not None
+          and ask_delivered["status"] == "delivered" and not ask_saw_review,
+          f"status={(ask_delivered or {}).get('status')}")
+    arj = json.loads(ask_delivered["resultJson"]) if ask_delivered else {}
+    check("ASK 结果为 answer 且非空", arj.get("kind") == "answer"
+          and isinstance(arj.get("answer"), str) and len(arj["answer"]) > 0,
+          f"kind={arj.get('kind')}")
+    bal_ask_end = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    check("ASK 扣费金额正确", bal_ask_start - bal_ask_end == ask_cost,
+          f"before={bal_ask_start} after={bal_ask_end} cost={ask_cost}")
+
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)
 failed = len(results) - passed

@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.prompts.medical import MEDICAL_SYSTEM_PROMPT
-from app.services.llm import LLMAuthError, LLMError, provider_status, stream_chat
+from app.services.llm import LLMAuthError, LLMError, complete, provider_status, stream_chat
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
@@ -72,3 +72,20 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             "X-Accel-Buffering": "no",  # 关闭 Nginx 缓冲，保证逐字输出
         },
     )
+
+
+@router.post("/complete")
+async def complete_chat(req: ChatRequest) -> dict:
+    """非流式对话（任务执行/ASK 问答用），一次性返回完整回答。"""
+    messages = [{"role": "system", "content": req.system or MEDICAL_SYSTEM_PROMPT}]
+    messages += [{"role": m.role, "content": m.content} for m in req.messages]
+    try:
+        answer = await complete(messages, temperature=req.temperature)
+        return {"answer": answer}
+    except LLMAuthError:
+        return {"error": "模型服务鉴权失败：API Key 无效，请联系管理员配置后重试"}
+    except LLMError:
+        return {"error": "模型服务暂时不可用，请稍后重试"}
+    except Exception as err:  # noqa: BLE001
+        print(f"[llm/complete] unexpected: {err}")
+        return {"error": "服务异常，请稍后重试"}

@@ -25,6 +25,19 @@ async function transition(
   await prisma.task.update({ where: { id: taskId }, data: { status: to, ...extra } });
 }
 
+/** ASK 模式：调用大模型非流式对话接口，直接返回问答文本 */
+async function runAsk(prompt: string): Promise<string> {
+  const res = await fetch(`${AI_URL}/api/llm/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+  });
+  if (!res.ok) throw new Error(`问答服务返回 ${res.status}`);
+  const data = (await res.json()) as { answer?: string; error?: string };
+  if (data.error) throw new Error(data.error);
+  return data.answer ?? "";
+}
+
 /** 技能 1：PubMed 文献检索（真实数据） */
 async function runLiteratureSearch(prompt: string, title: string) {
   const res = await fetch(`${AI_URL}/api/skills/literature-search`, {
@@ -678,6 +691,20 @@ export function runTask(taskId: string, phase: "plan" | "execute" = "plan") {
           await transition(taskId, TaskStatus.PLAN_READY);
           return;
         }
+      }
+
+      // ASK 模式：仅问答，直接调大模型返回回答，不走技能/预审/人工审核
+      const askTask = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+      if (askTask.mode === TaskMode.ASK) {
+        await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
+        const input = JSON.parse(askTask.inputJson) as { prompt: string };
+        const answer = await runAsk(input.prompt);
+        await prisma.task.update({
+          where: { id: taskId },
+          data: { resultJson: JSON.stringify({ kind: "answer", answer, prompt: input.prompt }) },
+        });
+        await transition(taskId, TaskStatus.DELIVERED, { deliveredAt: new Date() });
+        return;
       }
 
       await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });

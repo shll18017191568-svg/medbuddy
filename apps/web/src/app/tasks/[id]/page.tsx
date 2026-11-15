@@ -87,6 +87,7 @@ export default function TaskDetailPage() {
       : [TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.REVIEWING, TaskStatus.DELIVERED];
   const currentIndex = FLOW.indexOf(task.status as TaskStatus);
   const isPlan = result?.kind === "plan";
+  const isAnswer = result?.kind === "answer";
 
   async function confirmPlan() {
     if (!task) return;
@@ -253,7 +254,25 @@ export default function TaskDetailPage() {
         </section>
       )}
 
-      {result && !isPlan && (
+      {/* ASK 问答回答 */}
+      {result && isAnswer && (
+        <section className="mt-4 rounded-xl border border-sky-200 bg-sky-50/40 p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-sky-700">AI 回答</h2>
+            <span className="text-xs text-slate-400">
+              回传时间：{task.deliveredAt ? new Date(task.deliveredAt).toLocaleString("zh-CN") : "-"}
+            </span>
+          </div>
+          <div className="prose prose-sm mt-3 max-w-none whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+            {String(result.answer ?? "")}
+          </div>
+          <p className="mt-4 rounded-lg bg-white p-3 text-xs text-slate-500">
+            以上内容由 AI 辅助生成，仅供医学专业人士参考，不构成诊疗建议。
+          </p>
+        </section>
+      )}
+
+      {result && !isPlan && !isAnswer && (
         <section className="mt-4 rounded-xl border border-green-200 bg-green-50/50 p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-green-700">交付结果</h2>

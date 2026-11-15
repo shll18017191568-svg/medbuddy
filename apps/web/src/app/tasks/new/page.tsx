@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { TASK_TYPE_META, TaskMode, TaskType } from "@medbuddy/shared";
+import { TASK_TYPE_META, TaskMode, TaskType, ASK_PRICE } from "@medbuddy/shared";
 
 export default function NewTaskPage() {
   const router = useRouter();
@@ -23,7 +23,8 @@ export default function NewTaskPage() {
   }, []);
 
   const meta = TASK_TYPE_META[type];
-  const insufficient = balance !== null && balance < meta.price;
+  const effectivePrice = mode === TaskMode.ASK ? ASK_PRICE : meta.price;
+  const insufficient = balance !== null && balance < effectivePrice;
 
   async function submit() {
     setError(null);
@@ -154,7 +155,7 @@ export default function NewTaskPage() {
 
         {insufficient && (
           <p className="text-sm text-red-600">
-            积分不足：本任务需 {meta.price} 分，当前余额 {balance} 分
+            积分不足：本任务需 {effectivePrice} 分，当前余额 {balance} 分
           </p>
         )}
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -164,7 +165,7 @@ export default function NewTaskPage() {
           disabled={title.trim().length < 2 || prompt.trim().length < 1 || insufficient || loading}
           className="w-full rounded-lg bg-blue-600 py-2.5 font-medium text-white transition hover:bg-blue-700 disabled:opacity-40"
         >
-          {loading ? "提交中…" : `提交任务（扣 ${meta.price} 积分）`}
+          {loading ? "提交中…" : `提交任务（扣 ${effectivePrice} 积分）`}
         </button>
         <p className="text-xs text-slate-400">
           提交后任务云端执行，关闭浏览器不影响；完成后在任务中心查看交付结果。
