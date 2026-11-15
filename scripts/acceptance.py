@@ -643,6 +643,37 @@ with httpx.Client(timeout=90) as c:
     check("免费领取引导", "注册即" in sk_html and "手机号免费领取" in sk_html)
     check("技能使用条款挂链", "/legal/disclaimer" in sk_html)
 
+    print("\n[21] 多模型切换（任务级选择 + 未配置自动回退）")
+    st = c.get(f"{AI}/api/llm/status").json()
+    check("默认模型状态可读", bool(st.get("provider")) and bool(st.get("model")), str(st))
+
+    mt = run_task(c, {
+        "type": "literature_search", "mode": "ask", "model": "deepseek",
+        "title": "验收-指定模型问答",
+        "prompt": "用一句话说明高血压患者夏季用药需要注意什么",
+    }, limit=40)
+    check("指定 deepseek 任务交付", bool(mt) and mt.get("status") == "delivered",
+          f"status={mt.get('status') if mt else None}")
+    check("任务记录模型选择", bool(mt) and mt.get("model") == "deepseek",
+          f"model={mt.get('model') if mt else None}")
+    answer = ""
+    if mt and mt.get("resultJson"):
+        answer = json.loads(mt["resultJson"]).get("answer", "")
+    check("指定模型任务有回答", len(answer) > 20, f"len={len(answer)}")
+
+    bad = c.post(f"{BASE}/api/tasks", json={
+        "type": "literature_search", "mode": "plan", "model": "gpt-9",
+        "title": "验收-非法模型回退", "prompt": "验证非法模型回退为自动选择",
+    })
+    bt = bad.json().get("task", {}) if bad.status_code == 200 else {}
+    check("非法模型回退 auto", bt.get("model") == "auto", f"model={bt.get('model')}")
+
+    fb = c.post(f"{AI}/api/llm/complete", headers={"X-LLM-Model": "qwen"},
+                json={"messages": [{"role": "user", "content": "用一句话说明什么是高血压"}]})
+    fans = fb.json().get("answer", "") if fb.status_code == 200 else ""
+    check("未配置模型自动回退可用", fb.status_code == 200 and len(fans) > 0,
+          f"HTTP {fb.status_code} len={len(fans)}")
+
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)
 failed = len(results) - passed

@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { TASK_TYPE_META, TaskMode, TaskType, ASK_PRICE } from "@medbuddy/shared";
+import { LLM_MODEL_OPTIONS, TASK_TYPE_META, TaskMode, TaskType, ASK_PRICE, type LlmModelId } from "@medbuddy/shared";
 
 export default function NewTaskPage() {
   const router = useRouter();
   const [type, setType] = useState<TaskType>(TaskType.LITERATURE_SEARCH);
   const [mode, setMode] = useState<TaskMode>(TaskMode.CRAFT);
+  const [model, setModel] = useState<LlmModelId>("auto");
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [balance, setBalance] = useState<number | null>(null);
@@ -37,7 +38,7 @@ export default function NewTaskPage() {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, mode, title, prompt }),
+        body: JSON.stringify({ type, mode, title, prompt, model }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "提交失败");
@@ -111,6 +112,31 @@ export default function NewTaskPage() {
             </button>
           ))}
         </div>
+      </section>
+
+      {/* 模型选择：任务级指定，未配置的模型自动回退默认模型 */}
+      <section className="mt-6">
+        <h2 className="text-sm font-medium text-slate-700">模型选择</h2>
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {LLM_MODEL_OPTIONS.map((m) => {
+            const active = m.id === model;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setModel(m.id)}
+                className={`rounded-xl border p-3 text-left transition ${
+                  active ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white"
+                }`}
+              >
+                <p className="text-sm font-semibold">{m.label}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{m.description}</p>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-slate-400">
+          未配置 Key 或调用失败时，服务端会自动回退到默认模型，不影响任务交付。
+        </p>
       </section>
 
       {/* 表单 */}

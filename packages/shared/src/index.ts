@@ -476,6 +476,27 @@ export const SKILL_PACK_STATS = {
   coming: SKILL_CATALOG.filter((s) => s.status === "coming").length,
 };
 
+/** 任务可选大模型（总纲 §5.3 多模型切换：任务级指定，未配置或调用失败自动回退默认模型） */
+export const LLM_MODEL_OPTIONS = [
+  { id: "auto", label: "自动选择", description: "按服务端已配置的模型自动路由（推荐）" },
+  { id: "deepseek", label: "DeepSeek", description: "推理与长文写作" },
+  { id: "qwen", label: "通义千问", description: "中文医学表达" },
+  { id: "glm", label: "智谱 GLM", description: "通用问答与摘要" },
+] as const;
+
+export type LlmModelId = (typeof LLM_MODEL_OPTIONS)[number]["id"];
+
+/** 非法或缺失一律回退 auto，避免脏值写库 */
+export function normalizeModel(model?: string | null): LlmModelId {
+  const id = (model ?? "").trim().toLowerCase();
+  return (LLM_MODEL_OPTIONS.some((m) => m.id === id) ? id : "auto") as LlmModelId;
+}
+
+export function getModelLabel(model?: string | null): string {
+  const id = normalizeModel(model);
+  return LLM_MODEL_OPTIONS.find((m) => m.id === id)?.label ?? "自动选择";
+}
+
 /** ASK 模式（仅问答）固定低价：不产生正式交付物、不走人工审核，鼓励轻量咨询 */
 export const ASK_PRICE = 10;
 

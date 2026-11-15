@@ -4,13 +4,23 @@ import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { runTask } from "@/lib/task-runner";
 import { effectiveLevel } from "@/lib/membership";
-import { TASK_TYPE_META, TaskMode, TaskStatus, TaskType, applyMemberDiscount, ASK_PRICE } from "@medbuddy/shared";
+import {
+  TASK_TYPE_META,
+  TaskMode,
+  TaskStatus,
+  TaskType,
+  applyMemberDiscount,
+  ASK_PRICE,
+  normalizeModel,
+} from "@medbuddy/shared";
 
 const bodySchema = z.object({
   type: z.nativeEnum(TaskType),
   mode: z.nativeEnum(TaskMode).default(TaskMode.CRAFT),
   title: z.string().min(2, "标题至少 2 个字符").max(50),
   prompt: z.string().min(1, "请描述任务需求").max(2000),
+  // 任务级模型选择：非法值一律回退 auto（服务端自动路由）
+  model: z.string().optional(),
 });
 
 /** 创建任务单：扣积分（事务含流水）→ 入队 → 异步执行 */
@@ -26,6 +36,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "参数错误" }, { status: 400 });
   }
   const { type, mode, title, prompt } = parsed.data;
+  const model = normalizeModel(parsed.data.model);
   // 会员折扣在服务端统一计算，前端展示价格仅供参考
   const level = effectiveLevel(user.memberLevel, user.memberExpireAt);
   // ASK 模式走固定低价（轻量问答，不产生正式交付物），其余按任务类型定价
@@ -41,6 +52,7 @@ export async function POST(req: Request) {
           type,
           mode,
           title,
+          model,
           status: TaskStatus.QUEUED,
           inputJson: JSON.stringify({ prompt }),
           creditCost: 0, // 确认执行时再按会员价扣
@@ -63,6 +75,7 @@ export async function POST(req: Request) {
           type,
           mode,
           title,
+          model,
           status: TaskStatus.QUEUED, // 显式用枚举值，杜绝与 schema 默认值的大小写漂移
           inputJson: JSON.stringify({ prompt }),
           creditCost: price,

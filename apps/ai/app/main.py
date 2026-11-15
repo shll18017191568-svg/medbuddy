@@ -3,7 +3,7 @@
 S0 里程碑 M0：健康检查跑通，与 Web 服务联调。
 后续 Sprint 在此挂载：模型路由网关、文献工具、绘图引擎、Agent 编排。
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.avatar import router as avatar_router
@@ -11,6 +11,7 @@ from app.api.compliance import router as compliance_router
 from app.api.llm import router as llm_router
 from app.api.skills import router as skills_router
 from app.core.config import settings
+from app.services.llm import reset_requested_model, set_requested_model
 
 app = FastAPI(
     title="MedBuddy AI Service",
@@ -26,6 +27,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def llm_model_router(request: Request, call_next):
+    """任务级模型选择：读取 X-LLM-Model，本次请求内生效（未配置/失败自动回退）。"""
+    token = set_requested_model(request.headers.get("x-llm-model"))
+    try:
+        return await call_next(request)
+    finally:
+        reset_requested_model(token)
+
 
 # S2：大模型对话（数字人核心）
 app.include_router(llm_router)

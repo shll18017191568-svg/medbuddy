@@ -4,12 +4,14 @@
 - 一套协议适配 DeepSeek / 通义千问 / 智谱 GLM，切换只改环境变量；
 - 无 Key 时自动降级为 mock 模式，保证开发链路可端到端验证；
 - 流式输出（SSE），供 Web 端逐字渲染；
+- 任务级模型选择：请求头 X-LLM-Model 指定服务商，未配置 Key 或调用失败自动回退默认模型；
 - 统一异常，避免上游错误细节泄漏给终端用户。
 """
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 
 import httpx
@@ -42,26 +44,55 @@ class LLMAuthError(LLMError):
     """API Key 无效或无权限（配置问题，需管理员处理）。"""
 
 
-def resolve_provider() -> ProviderConfig | None:
-    """解析当前生效的服务商；无可用 Key 或显式 mock 时返回 None（走 mock）。"""
-    preferred = settings.llm_provider.strip().lower()
+# 本次请求指定的服务商（由 HTTP 中间件从 X-LLM-Model 写入），auto 表示不指定
+_requested_model: ContextVar[str] = ContextVar("requested_llm_model", default="auto")
 
+
+def set_requested_model(model: str | None) -> Token:
+    """中间件入口设置本次请求的模型；非法或缺失按 auto 处理。"""
+    name = (model or "").strip().lower()
+    return _requested_model.set(name if name in PROVIDERS else "auto")
+
+
+def reset_requested_model(token: Token) -> None:
+    _requested_model.reset(token)
+
+
+def _provider_config(name: str) -> ProviderConfig | None:
+    """按名称取服务商配置；未配置 Key 返回 None（交由调用方回退）。"""
+    base_url, default_model, key_field = PROVIDERS[name]
+    key = getattr(settings, key_field, "")
+    if not key:
+        return None
+    # 全局 llm_model 只覆盖「当前全局服务商」的默认模型，避免串模型
+    configured = settings.llm_provider.strip().lower()
+    model = settings.llm_model if (settings.llm_model and configured == name) else default_model
+    return ProviderConfig(name=name, base_url=base_url, model=model, api_key=key)
+
+
+def resolve_provider(preferred: str | None = None) -> ProviderConfig | None:
+    """解析生效的服务商；无可用 Key 或显式 mock 时返回 None（走 mock）。
+
+    preferred 为指定服务商（来自任务级选择）；未配置 Key 时返回 None，
+    由 stream_chat 回退到默认服务商。
+    """
     # 显式 mock：即使机器上存在 Key 也走演示模式（联调用）
-    if preferred == "mock":
+    if settings.llm_provider.strip().lower() == "mock":
         return None
 
-    names = [preferred] if preferred in PROVIDERS else list(PROVIDERS)
+    name = (preferred or settings.llm_provider).strip().lower()
+    if name in PROVIDERS:
+        return _provider_config(name)
 
-    for name in names:
-        base_url, default_model, key_field = PROVIDERS[name]
-        key = getattr(settings, key_field, "")
-        if key:
-            return ProviderConfig(
-                name=name,
-                base_url=base_url,
-                model=settings.llm_model or default_model,
-                api_key=key,
-            )
+    # auto：按已配置的 Key 依次尝试（deepseek → qwen → glm）
+    configured = settings.llm_provider.strip().lower()
+    names = ([configured] if configured in PROVIDERS else []) + [
+        n for n in PROVIDERS if n != configured
+    ]
+    for n in names:
+        config = _provider_config(n)
+        if config:
+            return config
     return None
 
 
@@ -102,15 +133,52 @@ async def stream_chat(
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> AsyncIterator[str]:
-    """流式输出文本增量。调用方负责组装 SSE 事件。"""
-    provider = resolve_provider()
+    """流式输出文本增量。调用方负责组装 SSE 事件。
+
+    模型路由：优先使用本次请求指定的服务商；未配置 Key 或调用失败（尚未输出任何内容时）
+    自动回退默认服务商，保证任务成功率。
+    """
+    requested = _requested_model.get()
+    primary = resolve_provider(requested) if requested in PROVIDERS else None
+    default_provider = resolve_provider()
+
+    if primary is None:
+        primary = default_provider
 
     # mock：逐段吐出占位回复，模拟真实流式体验
-    if provider is None:
+    if primary is None:
         for chunk in _chunk_text(MOCK_REPLY, size=12):
             yield chunk
         return
 
+    if default_provider is None or primary.name == default_provider.name:
+        async for chunk in _stream_from(primary, messages, temperature, max_tokens):
+            yield chunk
+        return
+
+    # 指定模型调用失败且尚未产出内容 → 回退默认模型
+    produced = False
+    try:
+        async for chunk in _stream_from(primary, messages, temperature, max_tokens):
+            produced = True
+            yield chunk
+        return
+    except LLMError as err:
+        if produced:
+            raise
+        print(f"[llm] provider {primary.name} 调用失败，回退 {default_provider.name}: {err}")
+
+    async for chunk in _stream_from(default_provider, messages, temperature, max_tokens):
+        yield chunk
+
+
+async def _stream_from(
+    provider: ProviderConfig,
+    messages: list[dict],
+    temperature: float | None,
+    max_tokens: int | None,
+) -> AsyncIterator[str]:
+    """从指定服务商拉流并逐段产出正文增量。"""
     payload = _build_payload(messages, provider, temperature, max_tokens)
     headers = {
         "Authorization": f"Bearer {provider.api_key}",

@@ -7,10 +7,21 @@
 import { prisma } from "@/lib/prisma";
 import { precheckDeliverable, type PrecheckResult } from "@/lib/compliance";
 import { effectiveLevel } from "@/lib/membership";
-import { TASK_TYPE_META, TaskMode, TaskStatus, canTransition, TaskType, ReviewStatus, applyMemberDiscount } from "@medbuddy/shared";
+import { TASK_TYPE_META, TaskMode, TaskStatus, canTransition, TaskType, ReviewStatus, applyMemberDiscount, normalizeModel } from "@medbuddy/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
+
+/**
+ * 统一调用 AI 服务：带任务级模型头（auto 不加，由服务端按已配置 Key 自动路由）。
+ * 未配置 Key 或调用失败时，AI 服务内部自动回退默认模型，不影响任务成功率。
+ */
+function aiFetch(path: string, body: unknown, model?: string) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const selected = normalizeModel(model);
+  if (selected !== "auto") headers["X-LLM-Model"] = selected;
+  return fetch(`${AI_URL}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+}
 
 /** 推进状态机（校验流转合法性） */
 async function transition(
@@ -26,12 +37,12 @@ async function transition(
 }
 
 /** ASK 模式：调用大模型非流式对话接口，直接返回问答文本 */
-async function runAsk(prompt: string): Promise<string> {
-  const res = await fetch(`${AI_URL}/api/llm/complete`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
-  });
+async function runAsk(prompt: string, model?: string): Promise<string> {
+  const res = await aiFetch(
+    "/api/llm/complete",
+    { messages: [{ role: "user", content: prompt }] },
+    model,
+  );
   if (!res.ok) throw new Error(`问答服务返回 ${res.status}`);
   const data = (await res.json()) as { answer?: string; error?: string };
   if (data.error) throw new Error(data.error);
@@ -39,12 +50,12 @@ async function runAsk(prompt: string): Promise<string> {
 }
 
 /** 技能 1：PubMed 文献检索（真实数据） */
-async function runLiteratureSearch(prompt: string, title: string) {
-  const res = await fetch(`${AI_URL}/api/skills/literature-search`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: prompt, limit: 10, years: 5 }),
-  });
+async function runLiteratureSearch(prompt: string, title: string, model?: string) {
+  const res = await aiFetch(
+    "/api/skills/literature-search",
+    { query: prompt, limit: 10, years: 5 },
+    model,
+  );
   if (!res.ok) throw new Error(`检索服务返回 ${res.status}`);
 
   const data = (await res.json()) as {
@@ -79,18 +90,14 @@ async function runLiteratureSearch(prompt: string, title: string) {
 }
 
 /** 技能 2：文献解读（PMID → 结构化拆解，只认原文） */
-async function runLiteratureDigest(prompt: string, fallbackTitle: string) {
+async function runLiteratureDigest(prompt: string, fallbackTitle: string, model?: string) {
   const matched = prompt.match(/\b\d{5,9}\b/);
   if (!matched) {
     throw new Error("未找到 PMID：请在需求描述中提供 5-9 位 PMID（如 38453898）");
   }
   const pmid = matched[0];
 
-  const res = await fetch(`${AI_URL}/api/skills/literature-digest`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ pmid }),
-  });
+  const res = await aiFetch("/api/skills/literature-digest", { pmid }, model);
   if (!res.ok) throw new Error(`解读服务返回 ${res.status}`);
 
   const data = (await res.json()) as {
@@ -171,17 +178,17 @@ async function runVisualize(prompt: string, title: string) {
 }
 
 /** 技能 5：综述写作（真实建库 + 分章生成 + 引用校验） */
-async function runReviewDraft(prompt: string, title: string) {
-  const res = await fetch(`${AI_URL}/api/skills/review-draft`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+async function runReviewDraft(prompt: string, title: string, model?: string) {
+  const res = await aiFetch(
+    "/api/skills/review-draft",
+    {
       topic: prompt.trim().slice(0, 500),
       max_refs: 30,
       years: 10,
       citation_style: "gb7714",
-    }),
-  });
+    },
+    model,
+  );
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as
       | { error?: string; detail?: unknown }
@@ -220,16 +227,16 @@ async function runReviewDraft(prompt: string, title: string) {
 }
 
 /** 技能 3：实验设计（可选核心文献 PMID） */
-async function runExperimentDesign(prompt: string, title: string) {
+async function runExperimentDesign(prompt: string, title: string, model?: string) {
   const matched = prompt.match(/\b\d{5,9}\b/);
-  const res = await fetch(`${AI_URL}/api/skills/experiment-design`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const res = await aiFetch(
+    "/api/skills/experiment-design",
+    {
       topic: prompt.trim().slice(0, 500),
       pmid: matched?.[0],
-    }),
-  });
+    },
+    model,
+  );
 
   const data = (await res.json().catch(() => null)) as {
     error?: string;
@@ -260,16 +267,16 @@ async function runExperimentDesign(prompt: string, title: string) {
 }
 
 /** 技能 4：临床方案设计（PICO + 统计 + 伦理） */
-async function runClinicalDesign(prompt: string, title: string) {
+async function runClinicalDesign(prompt: string, title: string, model?: string) {
   const matched = prompt.match(/\b\d{5,9}\b/);
-  const res = await fetch(`${AI_URL}/api/skills/clinical-design`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const res = await aiFetch(
+    "/api/skills/clinical-design",
+    {
       topic: prompt.trim().slice(0, 500),
       pmid: matched?.[0],
-    }),
-  });
+    },
+    model,
+  );
 
   const data = (await res.json().catch(() => null)) as {
     error?: string;
@@ -338,12 +345,12 @@ async function runReferences(prompt: string, title: string) {
 }
 
 /** S5 内容工厂（科普图文 / 短视频脚本 / 患教卡片，类型由服务端按主题识别） */
-async function runContentGen(prompt: string, title: string) {
-  const res = await fetch(`${AI_URL}/api/skills/content`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic: prompt.trim().slice(0, 500) }),
-  });
+async function runContentGen(prompt: string, title: string, model?: string) {
+  const res = await aiFetch(
+    "/api/skills/content",
+    { topic: prompt.trim().slice(0, 500) },
+    model,
+  );
 
   const data = (await res.json().catch(() => null)) as {
     error?: string;
@@ -373,7 +380,7 @@ async function runContentGen(prompt: string, title: string) {
 }
 
 /** 技能 7：文风改写（原文 + 目标文风 → 保真改写稿） */
-async function runStyleRewrite(prompt: string, title: string) {
+async function runStyleRewrite(prompt: string, title: string, model?: string) {
   const lower = prompt.toLowerCase();
   const styleMap: [string, string[]][] = [
     ["academic", ["学术", "论文", "期刊", "sci"]],
@@ -391,11 +398,11 @@ async function runStyleRewrite(prompt: string, title: string) {
       ? "扩写（约为原文 130% 篇幅）"
       : undefined;
 
-  const res = await fetch(`${AI_URL}/api/skills/style-rewrite`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: prompt.slice(0, 8000), style, length }),
-  });
+  const res = await aiFetch(
+    "/api/skills/style-rewrite",
+    { text: prompt.slice(0, 8000), style, length },
+    model,
+  );
 
   const data = (await res.json().catch(() => null)) as {
     error?: string;
@@ -430,18 +437,18 @@ async function runStyleRewrite(prompt: string, title: string) {
 }
 
 /** 数字人播报视频（播报稿 + 分镜 + 第三方供应商合成任务单） */
-async function runAvatarVideo(prompt: string, title: string) {
+async function runAvatarVideo(prompt: string, title: string, model?: string) {
   const aspect = ["横屏", "16:9", "会议", "公众号"].some((k) => prompt.includes(k))
     ? "landscape"
     : undefined;
   const matched = prompt.match(/(\d{2,3})\s*秒/);
   const duration = matched ? Math.max(20, Math.min(Number(matched[1]), 180)) : undefined;
 
-  const res = await fetch(`${AI_URL}/api/avatar/video`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic: prompt.slice(0, 3000), aspect, duration }),
-  });
+  const res = await aiFetch(
+    "/api/avatar/video",
+    { topic: prompt.slice(0, 3000), aspect, duration },
+    model,
+  );
 
   const data = (await res.json().catch(() => null)) as {
     error?: string;
@@ -698,7 +705,7 @@ export function runTask(taskId: string, phase: "plan" | "execute" = "plan") {
       if (askTask.mode === TaskMode.ASK) {
         await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
         const input = JSON.parse(askTask.inputJson) as { prompt: string };
-        const answer = await runAsk(input.prompt);
+        const answer = await runAsk(input.prompt, askTask.model);
         await prisma.task.update({
           where: { id: taskId },
           data: { resultJson: JSON.stringify({ kind: "answer", answer, prompt: input.prompt }) },
@@ -714,25 +721,25 @@ export function runTask(taskId: string, phase: "plan" | "execute" = "plan") {
 
       const result =
         task.type === TaskType.LITERATURE_SEARCH
-          ? await runLiteratureSearch(input.prompt, task.title)
+          ? await runLiteratureSearch(input.prompt, task.title, task.model)
           : task.type === TaskType.LITERATURE_DIGEST
-            ? await runLiteratureDigest(input.prompt, task.title)
+            ? await runLiteratureDigest(input.prompt, task.title, task.model)
             : task.type === TaskType.CHART
               ? await runVisualize(input.prompt, task.title)
               : task.type === TaskType.REVIEW_DRAFT
-                ? await runReviewDraft(input.prompt, task.title)
+                ? await runReviewDraft(input.prompt, task.title, task.model)
                 : task.type === TaskType.EXPERIMENT_DESIGN
-                  ? await runExperimentDesign(input.prompt, task.title)
+                  ? await runExperimentDesign(input.prompt, task.title, task.model)
                   : task.type === TaskType.CLINICAL_DESIGN
-                    ? await runClinicalDesign(input.prompt, task.title)
+                    ? await runClinicalDesign(input.prompt, task.title, task.model)
                     : task.type === TaskType.REFERENCE_FORMAT
                       ? await runReferences(input.prompt, task.title)
                       : task.type === TaskType.CONTENT_GEN
-                        ? await runContentGen(input.prompt, task.title)
+                        ? await runContentGen(input.prompt, task.title, task.model)
                         : task.type === TaskType.STYLE_REWRITE
-                          ? await runStyleRewrite(input.prompt, task.title)
+                          ? await runStyleRewrite(input.prompt, task.title, task.model)
                           : task.type === TaskType.AVATAR_VIDEO
-                            ? await runAvatarVideo(input.prompt, task.title)
+                            ? await runAvatarVideo(input.prompt, task.title, task.model)
                             : task.type === TaskType.AVATAR_CLONE
                               ? await runAvatarClone(input.prompt, task.title)
                               : (await sleep(1200), mockDeliverable(task.type, task.title));

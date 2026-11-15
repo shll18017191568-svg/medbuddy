@@ -11,6 +11,7 @@ import {
   TaskMode,
   TaskStatus,
   TaskType,
+  getModelLabel,
 } from "@medbuddy/shared";
 
 type Task = {
@@ -18,6 +19,7 @@ type Task = {
   type: string;
   mode: string;
   title: string;
+  model: string;
   inputJson: string;
   status: TaskStatus;
   creditCost: number;
@@ -183,7 +185,8 @@ export default function TaskDetailPage() {
           <p className="mt-1 text-sm text-slate-500">
             {TASK_TYPE_META[task.type as TaskType]?.label ?? task.type} ·{" "}
             {task.mode === TaskMode.PLAN ? "先出方案" : task.mode === TaskMode.ASK ? "仅问答" : "直接执行"} ·{" "}
-            {task.creditCost} 积分 · 提交于 {new Date(task.createdAt).toLocaleString("zh-CN")}
+            {getModelLabel(task.model)} · {task.creditCost} 积分 · 提交于{" "}
+            {new Date(task.createdAt).toLocaleString("zh-CN")}
           </p>
         </div>
         <span

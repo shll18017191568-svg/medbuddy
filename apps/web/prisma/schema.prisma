@@ -144,6 +144,7 @@ model Task {
   type        String // TaskType（packages/shared）
   mode        String    @default("CRAFT") // TaskMode：CRAFT/PLAN/ASK
   title       String
+  model       String    @default("auto") // 任务级模型选择：auto/deepseek/qwen/glm（未配置或失败自动回退默认）
   inputJson   String // 任务输入参数（JSON 字符串，SQLite 无原生 JSON）
   status      String    @default("queued") // TaskStatus 状态机（值与 packages/shared 枚举一致，全小写）
   creditCost  Int       @default(0) // 本单扣减积分
