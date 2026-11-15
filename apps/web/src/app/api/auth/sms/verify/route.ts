@@ -21,8 +21,14 @@ export async function POST(req: Request) {
   }
   const { phone, code } = parsed.data;
 
-  const valid = await checkSmsCode(phone, code);
-  if (!valid) {
+  const result = await checkSmsCode(phone, code);
+  if (result === "LOCKED") {
+    return NextResponse.json(
+      { error: "验证码错误次数过多，请重新获取验证码" },
+      { status: 429 },
+    );
+  }
+  if (result !== "OK") {
     return NextResponse.json({ error: "验证码错误或已过期" }, { status: 401 });
   }
 
@@ -67,6 +73,7 @@ export async function POST(req: Request) {
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
     maxAge: SESSION_MAX_AGE,
     path: "/",
   });

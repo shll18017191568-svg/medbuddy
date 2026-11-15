@@ -115,6 +115,7 @@ model SmsCode {
   phone     String
   code      String
   purpose   String    @default("LOGIN") // LOGIN
+  attempts  Int       @default(0) // 连续校验失败次数，达上限即锁定，防暴力枚举
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())
