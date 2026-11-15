@@ -206,9 +206,14 @@ export default function AdminPage() {
         <h1 className="text-2xl font-bold">
           MedBuddy <span className="text-blue-600">运营后台</span>
         </h1>
-        <Link href="/" className="text-sm text-blue-600 hover:underline">
-          返回工作台 →
-        </Link>
+        <div className="flex gap-4 text-sm">
+          <Link href="/admin/orders" className="text-blue-600 hover:underline">
+            订单与对账 →
+          </Link>
+          <Link href="/" className="text-slate-500 hover:underline">
+            返回工作台 →
+          </Link>
+        </div>
       </div>
 
       <div className="mt-6 flex gap-2">
