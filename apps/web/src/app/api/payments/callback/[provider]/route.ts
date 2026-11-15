@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PaymentProvider } from "@medbuddy/shared";
 import { getPaymentProvider } from "@/lib/payments";
 import { settlePayment } from "@/lib/payments/settle";
+import { settleMembershipPayment } from "@/lib/payments/membership-settle";
 
 /** 按渠道返回约定格式：微信 JSON，支付宝纯文本 success/failure */
 function reply(provider: string, ok: boolean, message: string) {
@@ -41,13 +42,17 @@ export async function POST(
   if (!callback.success) return reply(provider, false, "支付未成功");
 
   try {
-    const result = await settlePayment({
+    const input = {
       provider,
       outTradeNo: callback.outTradeNo,
       transactionId: callback.transactionId,
       amountFen: callback.amountFen,
       raw: callback.raw,
-    });
+    };
+    // MM 前缀为会员订单，其余为积分充值订单，共用验签与幂等约束
+    const result = callback.outTradeNo.startsWith("MM")
+      ? await settleMembershipPayment(input)
+      : await settlePayment(input);
     if (result.outcome === "PAID" || result.outcome === "ALREADY_PAID") {
       return reply(provider, true, "成功");
     }

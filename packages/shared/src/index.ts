@@ -153,6 +153,9 @@ export const REGISTER_CREDIT_BONUS = 10000;
 /** 每日签到奖励积分 */
 export const CHECKIN_REWARD = 100;
 
+/** 会员开通/续费周期（天） */
+export const MEMBERSHIP_PERIOD_DAYS = 30;
+
 /** 会员等级（免费 / 专业 / 旗舰） */
 export enum MemberLevel {
   FREE = "free",

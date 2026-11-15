@@ -3,13 +3,14 @@ import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { settlePayment } from "@/lib/payments/settle";
+import { settleMembershipPayment } from "@/lib/payments/membership-settle";
 import { PaymentOrderStatus, PaymentProvider } from "@medbuddy/shared";
 
 const bodySchema = z.object({ outTradeNo: z.string().min(1) });
 
 /**
  * 开发环境模拟支付确认（仅 mock 订单、仅本人）。
- * 走与真实回调相同的入账函数，用于验证金额校验与幂等。
+ * 支持积分充值单（MB）与会员订单（MM），走与真实回调相同的入账函数。
  */
 export async function POST(req: Request) {
   if (process.env.NODE_ENV === "production") {
@@ -24,31 +25,63 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "缺少订单号" }, { status: 400 });
   }
 
-  const order = await prisma.rechargeOrder.findUnique({
-    where: { outTradeNo: parsed.data.outTradeNo },
-  });
-  if (!order || order.userId !== user.id) {
-    return NextResponse.json({ error: "订单不存在" }, { status: 404 });
-  }
-  if (order.provider !== PaymentProvider.MOCK) {
-    return NextResponse.json({ error: "该订单不是模拟支付订单" }, { status: 400 });
-  }
+  const outTradeNo = parsed.data.outTradeNo;
+  const isMembership = outTradeNo.startsWith("MM");
 
   try {
+    if (isMembership) {
+      const order = await prisma.membershipOrder.findUnique({ where: { outTradeNo } });
+      if (!order || order.userId !== user.id) {
+        return NextResponse.json({ error: "订单不存在" }, { status: 404 });
+      }
+      if (order.provider !== PaymentProvider.MOCK) {
+        return NextResponse.json({ error: "该订单不是模拟支付订单" }, { status: 400 });
+      }
+
+      const result = await settleMembershipPayment({
+        provider: PaymentProvider.MOCK,
+        outTradeNo,
+        transactionId: `MOCK-${outTradeNo}`,
+        amountFen: order.amountFen,
+        raw: { source: "dev-confirm", confirmedAt: new Date().toISOString() },
+      });
+      if (result.outcome !== "PAID" && result.outcome !== "ALREADY_PAID") {
+        return NextResponse.json({ error: `入账失败：${result.outcome}` }, { status: 409 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        kind: "membership",
+        status: PaymentOrderStatus.PAID,
+        balance: result.balance ?? user.credits?.balance ?? 0,
+        memberLevel: result.memberLevel ?? null,
+        memberExpireAt: result.memberExpireAt ?? null,
+        mock: true,
+      });
+    }
+
+    const order = await prisma.rechargeOrder.findUnique({ where: { outTradeNo } });
+    if (!order || order.userId !== user.id) {
+      return NextResponse.json({ error: "订单不存在" }, { status: 404 });
+    }
+    if (order.provider !== PaymentProvider.MOCK) {
+      return NextResponse.json({ error: "该订单不是模拟支付订单" }, { status: 400 });
+    }
+
     const result = await settlePayment({
       provider: PaymentProvider.MOCK,
-      outTradeNo: order.outTradeNo,
-      transactionId: `MOCK-${order.outTradeNo}`,
+      outTradeNo,
+      transactionId: `MOCK-${outTradeNo}`,
       amountFen: order.amountFen,
       raw: { source: "dev-confirm", confirmedAt: new Date().toISOString() },
     });
-
     if (result.outcome !== "PAID" && result.outcome !== "ALREADY_PAID") {
       return NextResponse.json({ error: `入账失败：${result.outcome}` }, { status: 409 });
     }
 
     return NextResponse.json({
       ok: true,
+      kind: "recharge",
       status: PaymentOrderStatus.PAID,
       balance: result.balance ?? user.credits?.balance ?? 0,
       mock: true,

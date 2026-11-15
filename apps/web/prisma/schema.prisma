@@ -28,6 +28,7 @@ model User {
   ledgers CreditLedger[]
   checkIns CheckIn[]
   rechargeOrders RechargeOrder[]
+  membershipOrders MembershipOrder[]
   avatarJobs AvatarJob[]
 }
 
@@ -66,6 +67,26 @@ model RechargeOrder {
   status        String    @default("CREATED") // CREATED | PENDING | PAID | FAILED | REFUNDED
   paidAt        DateTime?
   callbackJson  String? // 回调原文（对账与审计）
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+}
+
+/// 会员开通/续费订单：支付回调成功后才开通，金额单位分
+model MembershipOrder {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  level         String // pro | flagship
+  periodDays    Int       @default(30)
+  provider      String    @default("mock") // mock | wechat | alipay
+  outTradeNo    String    @unique @default(cuid()) // MM 前缀，与充值单区分
+  transactionId String?   @unique // 回调幂等依据
+  amountFen     Int
+  status        String    @default("CREATED") // CREATED | PENDING | PAID | FAILED | REFUNDED
+  paidAt        DateTime?
+  callbackJson  String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

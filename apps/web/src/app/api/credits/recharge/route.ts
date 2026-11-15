@@ -1,20 +1,14 @@
-import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { resolvePaymentProvider } from "@/lib/payments";
+import { createOutTradeNo, resolvePaymentProvider } from "@/lib/payments";
 import { PaymentOrderStatus, yuanToFen, findRechargePackage } from "@medbuddy/shared";
 
 const bodySchema = z.object({
   packageId: z.string().min(1),
   provider: z.enum(["mock", "wechat", "alipay"]).optional(),
 });
-
-/** 商户订单号：MB + 毫秒时间戳 + 4 位随机（微信要求 6-32 位） */
-function makeOutTradeNo(): string {
-  return `MB${Date.now()}${crypto.randomInt(1000, 9999)}`;
-}
 
 /**
  * 创建充值订单并获取支付参数。
@@ -42,7 +36,7 @@ export async function POST(req: Request) {
   }
 
   const amountFen = yuanToFen(pack.priceYuan);
-  const outTradeNo = makeOutTradeNo();
+  const outTradeNo = createOutTradeNo("MB");
 
   const order = await prisma.rechargeOrder.create({
     data: {

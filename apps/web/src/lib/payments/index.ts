@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { PAYMENT_PROVIDER_LABEL, PaymentProvider } from "@medbuddy/shared";
 import { alipayPaymentProvider } from "./alipay";
 import { mockPaymentProvider } from "./mock";
@@ -9,6 +10,11 @@ const providers: Record<string, PaymentProviderAdapter> = {
   [PaymentProvider.WECHAT]: wechatPaymentProvider,
   [PaymentProvider.ALIPAY]: alipayPaymentProvider,
 };
+
+/** 商户订单号：MB=充值，MM=会员；毫秒时间戳 + 4 位随机（微信要求 6-32 位） */
+export function createOutTradeNo(prefix: "MB" | "MM" = "MB"): string {
+  return `${prefix}${Date.now()}${crypto.randomInt(1000, 9999)}`;
+}
 
 export function getPaymentProvider(id: string): PaymentProviderAdapter | null {
   return providers[id] ?? null;

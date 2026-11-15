@@ -2,18 +2,23 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { memberStatus } from "@/lib/membership";
-import { MEMBER_PLANS, MemberLevel } from "@medbuddy/shared";
+import { createOutTradeNo, resolvePaymentProvider } from "@/lib/payments";
+import {
+  MEMBERSHIP_PERIOD_DAYS,
+  MEMBER_PLANS,
+  MemberLevel,
+  PaymentOrderStatus,
+  yuanToFen,
+} from "@medbuddy/shared";
 
 const bodySchema = z.object({
   level: z.enum([MemberLevel.PRO, MemberLevel.FLAGSHIP]),
+  provider: z.enum(["mock", "wechat", "alipay"]).optional(),
 });
 
-const PERIOD_DAYS = 30;
-
 /**
- * 开通/续费会员（当前为测试开通，未接支付）。
- * 接入微信/支付宝后改为支付回调里调用同一段逻辑。
+ * 创建会员开通/续费订单并获取支付参数。
+ * 不再直接生效：支付回调（或开发环境模拟支付）成功后才开通并赠送积分。
  */
 export async function POST(req: Request) {
   const user = await getCurrentUser();
@@ -26,48 +31,75 @@ export async function POST(req: Request) {
   const level = parsed.data.level;
   const plan = MEMBER_PLANS[level];
 
-  // 未过期则从原到期时间续期，否则从当前时间起算
-  const base =
-    user.memberExpireAt && user.memberExpireAt.getTime() > Date.now()
-      ? user.memberExpireAt
-      : new Date();
-  const expireAt = new Date(base.getTime() + PERIOD_DAYS * 24 * 60 * 60 * 1000);
+  const { adapter, fallback } = resolvePaymentProvider(parsed.data.provider);
+  if (!adapter.isConfigured()) {
+    return NextResponse.json(
+      { error: "模拟支付仅限开发环境，生产环境请配置支付商户号" },
+      { status: 503 },
+    );
+  }
 
+  const amountFen = yuanToFen(plan.priceMonthly);
+  const outTradeNo = createOutTradeNo("MM");
+
+  const order = await prisma.membershipOrder.create({
+    data: {
+      userId: user.id,
+      level,
+      periodDays: MEMBERSHIP_PERIOD_DAYS,
+      provider: adapter.id,
+      outTradeNo,
+      amountFen,
+      status: PaymentOrderStatus.CREATED,
+    },
+  });
+
+  let payment;
   try {
-    const grant = plan.monthlyCredits;
-    const balance = await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: user.id },
-        data: { memberLevel: level, memberExpireAt: expireAt },
-      });
-
-      const account = await tx.creditAccount.findUniqueOrThrow({ where: { userId: user.id } });
-      const balanceAfter = account.balance + grant;
-      await tx.creditAccount.update({
-        where: { id: account.id },
-        data: { balance: balanceAfter, totalEarn: { increment: grant } },
-      });
-      await tx.creditLedger.create({
-        data: {
-          userId: user.id,
-          type: "GRANT",
-          amount: grant,
-          balanceAfter,
-          note: `${plan.name}开通赠送积分`,
-        },
-      });
-      return balanceAfter;
-    });
-
-    return NextResponse.json({
-      ok: true,
-      mock: true,
-      message: `已测试开通${plan.name}（${PERIOD_DAYS} 天），赠送 ${grant} 积分`,
-      current: memberStatus({ memberLevel: level, memberExpireAt: expireAt }),
-      balance,
+    payment = await adapter.createPayment({
+      outTradeNo,
+      amountFen,
+      subject: `MedBuddy ${plan.name} ${MEMBERSHIP_PERIOD_DAYS}天`,
     });
   } catch (err) {
-    console.error("[membership/subscribe]", err);
-    return NextResponse.json({ error: "开通失败，请稍后重试" }, { status: 500 });
+    await prisma.membershipOrder.update({
+      where: { id: order.id },
+      data: { status: PaymentOrderStatus.FAILED },
+    });
+    console.error("[membership/subscribe] createPayment", err);
+    return NextResponse.json({ error: "支付下单失败，请稍后重试" }, { status: 502 });
   }
+
+  await prisma.membershipOrder.update({
+    where: { id: order.id },
+    data: { status: PaymentOrderStatus.PENDING },
+  });
+
+  const fallbackHint =
+    fallback && parsed.data.provider
+      ? `${parsed.data.provider} 支付未配置商户号，已切换为模拟支付（不产生真实扣款）`
+      : null;
+
+  return NextResponse.json({
+    ok: true,
+    kind: "membership",
+    order: {
+      id: order.id,
+      outTradeNo,
+      provider: adapter.id,
+      amountFen,
+      level,
+      periodDays: MEMBERSHIP_PERIOD_DAYS,
+      status: PaymentOrderStatus.PENDING,
+    },
+    payUrl: payment.payUrl ?? null,
+    payParams: payment.payParams ?? null,
+    fallback,
+    mock: adapter.id === "mock",
+    message:
+      fallbackHint ??
+      (adapter.id === "mock"
+        ? `已创建${plan.name}订单，请点击「模拟支付」完成开通`
+        : "订单已创建，请完成支付"),
+  });
 }
