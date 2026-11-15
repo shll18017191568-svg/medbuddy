@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -8,12 +8,19 @@ export default function LoginPage() {
   const router = useRouter();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(0);
 
   const phoneValid = /^1[3-9]\d{9}$/.test(phone);
+
+  // 从邀请链接预填邀请码（新用户注册时生效）
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("invite");
+    if (fromUrl) setInviteCode(fromUrl.trim().toUpperCase());
+  }, []);
 
   async function sendSms() {
     setError(null);
@@ -48,7 +55,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/sms/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code }),
+        body: JSON.stringify({ phone, code, inviteCode: inviteCode || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "登录失败");
@@ -106,6 +113,16 @@ export default function LoginPage() {
               开发模式验证码：<b>{devCode}</b>（生产环境将发送短信）
             </p>
           )}
+        </div>
+
+        <div>
+          <label className="text-sm font-medium text-slate-700">邀请码（选填）</label>
+          <input
+            value={inviteCode}
+            onChange={(e) => setInviteCode(e.target.value.toUpperCase().slice(0, 6))}
+            placeholder="新用户填写可得额外积分"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 uppercase outline-none focus:border-blue-500"
+          />
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

@@ -441,6 +441,55 @@ with httpx.Client(timeout=90) as c:
               and any(order.get("id") == second_member.get("id") for order in membership_orders))
         check("订单管理页面可访问", c.get(f"{BASE}/admin/orders").status_code == 200)
 
+    print("\n[16] 邀请奖励（独立测试账号）")
+
+    def register(client: httpx.Client, phone: str, invite: str | None = None) -> httpx.Response:
+        sent = client.post(f"{BASE}/api/auth/sms/send", json={"phone": phone})
+        code = sent.json().get("devCode", "") if sent.status_code == 200 else ""
+        body = {"phone": phone, "code": code}
+        if invite is not None:
+            body["inviteCode"] = invite
+        return client.post(f"{BASE}/api/auth/sms/verify", json=body)
+
+    invite_stamp = str(int(time.time() * 1000))[-8:]
+    with httpx.Client(timeout=60) as inviter, httpx.Client(timeout=60) as invitee:
+        inviter_phone = f"138{invite_stamp}"
+        invitee_phone = f"137{invite_stamp}"
+        ghost_phone = f"135{invite_stamp}"
+        check("邀请人注册成功", register(inviter, inviter_phone).status_code == 200)
+        invite_info = inviter.get(f"{BASE}/api/invite")
+        invite_code = invite_info.json().get("code", "") if invite_info.status_code == 200 else ""
+        check("邀请码自动生成且稳定", len(invite_code) == 6
+              and inviter.get(f"{BASE}/api/invite").json().get("code") == invite_code, invite_code)
+
+        bad_invite = register(invitee, ghost_phone, "ZZZZZZ")
+        check("非法邀请码注册被拒", bad_invite.status_code == 400
+              and "邀请码" in bad_invite.json().get("error", ""),
+              bad_invite.json().get("error", ""))
+
+        joined = register(invitee, invitee_phone, invite_code.lower())
+        invitee_balance = invitee.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+        check("受邀注册得 500 积分", joined.status_code == 200 and invitee_balance == 10500,
+              f"余额 {invitee_balance}")
+
+        inviter_balance = inviter.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+        invite_stats = inviter.get(f"{BASE}/api/invite").json()
+        check("邀请人得 1000 积分", inviter_balance == 11000, f"余额 {inviter_balance}")
+        check("邀请战绩累计", invite_stats.get("invitedCount") == 1
+              and invite_stats.get("inviteEarned") == 1000,
+              f"{invite_stats.get('invitedCount')} 位 / {invite_stats.get('inviteEarned')} 分")
+
+        with sqlite3.connect(DB, timeout=30) as conn:
+            inviter_id = conn.execute("SELECT id FROM User WHERE phone = ?", (inviter_phone,)).fetchone()[0]
+            invited = conn.execute("SELECT id, invitedById FROM User WHERE phone = ?", (invitee_phone,)).fetchone()
+            invite_ledgers = conn.execute(
+                "SELECT userId, amount FROM CreditLedger WHERE type = 'INVITE' AND userId IN (?, ?)",
+                (inviter_id, invited[0] if invited else "")).fetchall()
+        check("邀请关系与双方流水", bool(invited and invited[1] == inviter_id)
+              and {(row[0], row[1]) for row in invite_ledgers} == {(inviter_id, 1000), (invited[0], 500)},
+              str(invite_ledgers))
+        check("邀请页可访问", inviter.get(f"{BASE}/invite").status_code == 200)
+
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)
 failed = len(results) - passed

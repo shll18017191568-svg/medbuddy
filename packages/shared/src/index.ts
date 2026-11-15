@@ -153,6 +153,10 @@ export const REGISTER_CREDIT_BONUS = 10000;
 /** 每日签到奖励积分 */
 export const CHECKIN_REWARD = 100;
 
+/** 邀请奖励：邀请人每成功邀请一位新医生 / 新医生受邀注册各得积分（终身一次） */
+export const INVITE_REWARD_INVITER = 1000;
+export const INVITE_REWARD_INVITEE = 500;
+
 /** 会员开通/续费周期（天） */
 export const MEMBERSHIP_PERIOD_DAYS = 30;
 

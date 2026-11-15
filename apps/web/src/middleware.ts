@@ -23,5 +23,6 @@ export const config = {
     "/chat",
     "/analysis",
     "/avatar",
+    "/invite",
   ],
 };
