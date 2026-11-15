@@ -6,17 +6,22 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "worker": "tsx src/workers/task-worker.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@medbuddy/shared": "*",
     "@prisma/client": "^6.16.0",
+    "bullmq": "^6.7.6",
+    "dotenv": "^16.6.1",
+    "ioredis": "^6.0.0",
     "jose": "^6.2.17",
     "next": "^15.5.0",
     "prisma": "^6.16.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
+    "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },
   "devDependencies": {

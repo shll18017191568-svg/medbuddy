@@ -11,12 +11,17 @@ export async function GET() {
     });
     if (!res.ok) throw new Error(`AI service HTTP ${res.status}`);
     const data = await res.json();
-    return Response.json({ web: "ok", ai: data });
+    return Response.json({
+      web: "ok",
+      ai: data,
+      taskQueue: process.env.TASK_QUEUE_DRIVER ?? "inline",
+    });
   } catch (err) {
     return Response.json(
       {
         web: "ok",
         ai: "unreachable",
+        taskQueue: process.env.TASK_QUEUE_DRIVER ?? "inline",
         detail: err instanceof Error ? err.message : String(err),
       },
       { status: 200 },

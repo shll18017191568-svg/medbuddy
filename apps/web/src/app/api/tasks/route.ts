@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { runTask } from "@/lib/task-runner";
+import { dispatchTask, TASK_DISPATCH_ERROR } from "@/lib/task-queue";
 import { effectiveLevel } from "@/lib/membership";
 import {
   TASK_TYPE_META,
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
           creditCost: 0, // 确认执行时再按会员价扣
         },
       });
-      runTask(task.id, "plan");
+      await dispatchTask(task.id, "plan");
       return NextResponse.json({ ok: true, task });
     }
 
@@ -102,8 +102,8 @@ export async function POST(req: Request) {
       return created;
     });
 
-    // 事务成功后触发执行（文献检索走真实 PubMed 技能）
-    runTask(task.id);
+    // 事务成功后等待入队结果，但不等待技能执行完成。
+    await dispatchTask(task.id, "execute");
 
     return NextResponse.json({ ok: true, task });
   } catch (err) {
@@ -112,6 +112,10 @@ export async function POST(req: Request) {
         { error: `积分不足：本任务需 ${price} 分，请签到或邀请好友获取积分` },
         { status: 402 },
       );
+    }
+    if (err instanceof Error && err.message === TASK_DISPATCH_ERROR) {
+      console.error("[tasks/dispatch]", err.cause);
+      return NextResponse.json({ error: "任务入队失败，请稍后重试" }, { status: 503 });
     }
     console.error("[tasks/create]", err);
     return NextResponse.json({ error: "创建任务失败，请稍后重试" }, { status: 500 });

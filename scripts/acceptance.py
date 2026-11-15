@@ -1,4 +1,5 @@
 """验收脚本：MedBuddy 全功能 API 与数据库验收（跑完自动汇总）。验收后可删除。"""
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import re
@@ -565,6 +566,60 @@ with httpx.Client(timeout=90) as c:
     c.post(f"{BASE}/api/tasks/{dtid}/confirm")
     double = c.post(f"{BASE}/api/tasks/{dtid}/confirm")
     check("重复确认返回 409", double.status_code == 409, f"HTTP {double.status_code}")
+
+    # 两个真正并发的确认请求：数据库 CAS 只能放行一个，且只扣费、只执行一次。
+    xc = c.post(f"{BASE}/api/tasks", json={
+        "type": "avatar_clone", "mode": "plan",
+        "title": "验收-PLAN并发确认", "prompt": "本人形象克隆，仅用于医学科普，已备齐授权材料",
+    })
+    xtid = xc.json()["task"]["id"]
+    xready = None
+    for _ in range(20):
+        time.sleep(2)
+        xt = c.get(f"{BASE}/api/tasks/{xtid}").json()["task"]
+        if xt["status"] == "plan_ready":
+            xready = xt
+            break
+    xcost = json.loads(xready["resultJson"])["cost"] if xready else 0
+    xbal_before = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+
+    def confirm_plan(_: int) -> httpx.Response:
+        with httpx.Client(timeout=60, cookies=c.cookies) as concurrent_client:
+            return concurrent_client.post(f"{BASE}/api/tasks/{xtid}/confirm")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        xresponses = list(pool.map(confirm_plan, range(2)))
+    xstatuses = sorted(res.status_code for res in xresponses)
+    check("并发 PLAN 确认仅一个成功", xstatuses == [200, 409], f"HTTP {xstatuses}")
+
+    xbal_after = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    with sqlite3.connect(DB) as conn:
+        xconsumes = conn.execute(
+            "SELECT COUNT(*) FROM CreditLedger WHERE taskId = ? AND type = 'CONSUME'",
+            (xtid,),
+        ).fetchone()[0]
+    check("并发 PLAN 只扣费一次", xbal_before - xbal_after == xcost and xconsumes == 1,
+          f"实扣={xbal_before - xbal_after} 方案价={xcost} 流水={xconsumes}")
+
+    xavatar_count = 0
+    xexecute_status = "超时"
+    for _ in range(30):
+        time.sleep(2)
+        xt = c.get(f"{BASE}/api/tasks/{xtid}").json()["task"]
+        xexecute_status = xt["status"]
+        if xt["status"] == "reviewing":
+            time.sleep(2)
+            with sqlite3.connect(DB) as conn:
+                xavatar_count = conn.execute(
+                    "SELECT COUNT(*) FROM AvatarJob WHERE taskId = ?", (xtid,),
+                ).fetchone()[0]
+            c.post(f"{BASE}/api/admin/tasks/{xtid}/review",
+                   json={"action": "APPROVE", "note": "并发验收自动通过"})
+            break
+        if xt["status"] in ("delivered", "failed"):
+            break
+    check("并发 PLAN 只执行一次", xexecute_status == "reviewing" and xavatar_count == 1,
+          f"status={xexecute_status} AvatarJob={xavatar_count}")
 
     print("\n[18] ASK 模式：仅问答（低价 + 跳过审核）")
     bal_ask_start = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]

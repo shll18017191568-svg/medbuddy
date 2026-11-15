@@ -24,7 +24,17 @@ npm run db:push      # 初始化本地 SQLite 数据库（首次）
 npm run dev          # http://localhost:3000
 ```
 
-> 开发环境变量：复制 `apps/web/.env.example` 为 `apps/web/.env`（AUTH_SECRET / SMS_PROVIDER 等）。
+> 开发环境变量：复制 `apps/web/.env.example` 为 `apps/web/.env`（AUTH_SECRET / SMS_PROVIDER 等）。默认 `TASK_QUEUE_DRIVER=inline`，单实例开发只需 Web + AI。
+
+### 可选：BullMQ 持久化任务队列
+
+需要跨重启恢复等待任务或运行多个 Web 实例时，在 `apps/web/.env` 设置 `TASK_QUEUE_DRIVER=bullmq` 与 `REDIS_URL`，启动 Redis 后另开终端运行：
+
+```bash
+npm run worker
+```
+
+Web 与 worker 必须共用 `DATABASE_URL`、`AI_SERVICE_URL` 和 Redis 配置。多实例生产环境必须使用 PostgreSQL；SQLite 与 inline 模式仅限单实例。
 
 ### AI 服务（apps/ai）
 
@@ -44,9 +54,10 @@ npm exec --workspace apps/web prisma generate
 npm run db:push
 npm run build --workspace apps/web
 npm run start --workspace apps/web
+npm run worker  # BullMQ 模式必须在独立常驻进程中运行
 ```
 
-必须部署为常驻 Node 进程（不可用 Serverless），AI 服务仅内网开放。环境变量清单、SQLite→PostgreSQL 切换、上线前阻塞项与回滚流程见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+生产使用 `TASK_QUEUE_DRIVER=bullmq`，Redis 开启 AOF 与 `noeviction`；Web 与 worker 均为常驻 Node 进程（不可用 Serverless），AI 与 Redis 仅内网开放。多实例必须使用 PostgreSQL。环境变量清单、队列故障语义、SQLite→PostgreSQL 切换、上线前阻塞项与回滚流程见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
 ## 开发约定
 

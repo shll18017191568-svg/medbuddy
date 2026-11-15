@@ -1,16 +1,17 @@
 /**
  * 任务执行器：按任务类型调用真实技能，推进状态机直至回传。
- * - 文献检索（S2）：调用 AI 服务 PubMed 真实检索；
- * - 其他类型：暂用模拟交付物（后续 Sprint 逐个替换）。
- * 注意：fire-and-forget 在 serverless 环境会被冻结，部署前需迁移到队列（S3 BullMQ）。
+ * 所有状态写入均绑定执行 token，防止重复投递或迟到 worker 覆盖新状态。
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { precheckDeliverable, type PrecheckResult } from "@/lib/compliance";
 import { effectiveLevel } from "@/lib/membership";
-import { TASK_TYPE_META, TaskMode, TaskStatus, canTransition, TaskType, ReviewStatus, applyMemberDiscount, normalizeModel } from "@medbuddy/shared";
+import { TASK_TYPE_META, TaskMode, TaskStatus, TaskType, ReviewStatus, applyMemberDiscount, normalizeModel } from "@medbuddy/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
+
+export type TaskExecutionPhase = "plan" | "execute";
 
 /**
  * 统一调用 AI 服务：带任务级模型头（auto 不加，由服务端按已配置 Key 自动路由）。
@@ -23,17 +24,59 @@ function aiFetch(path: string, body: unknown, model?: string) {
   return fetch(`${AI_URL}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
 }
 
-/** 推进状态机（校验流转合法性） */
-async function transition(
-  taskId: string,
-  to: TaskStatus,
-  extra: Record<string, unknown> = {},
-) {
-  const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-  if (!canTransition(task.status as TaskStatus, to)) {
-    throw new Error(`非法状态流转: ${task.status} -> ${to}`);
-  }
-  await prisma.task.update({ where: { id: taskId }, data: { status: to, ...extra } });
+/**
+ * 为一次调度初始化执行代次。并发调度复用已写入的 token，
+ * 避免后到的同 jobId 请求使已入队任务失效。
+ */
+export async function prepareTaskDispatch(taskId: string): Promise<string | null> {
+  const token = new Date();
+  const prepared = await prisma.task.updateMany({
+    where: { id: taskId, status: TaskStatus.QUEUED, startedAt: null },
+    data: { startedAt: token },
+  });
+  if (prepared.count === 1) return token.toISOString();
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { status: true, startedAt: true },
+  });
+  return task?.status === TaskStatus.QUEUED && task.startedAt
+    ? task.startedAt.toISOString()
+    : null;
+}
+
+/** 仅当前执行代次可将任务置为失败；状态更新赢家独享退款权。 */
+export async function failTask(taskId: string, token: string, reason: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.task.updateMany({
+      where: {
+        id: taskId,
+        status: { in: [TaskStatus.QUEUED, TaskStatus.RUNNING] },
+        startedAt: new Date(token),
+      },
+      data: { status: TaskStatus.FAILED, failReason: reason },
+    });
+    if (updated.count !== 1) return false;
+
+    const failed = await tx.task.findUniqueOrThrow({ where: { id: taskId } });
+    if (failed.creditCost > 0) {
+      const account = await tx.creditAccount.update({
+        where: { userId: failed.userId },
+        data: { balance: { increment: failed.creditCost } },
+      });
+      await tx.creditLedger.create({
+        data: {
+          userId: failed.userId,
+          taskId,
+          type: "REFUND",
+          amount: failed.creditCost,
+          balanceAfter: account.balance,
+          note: "任务失败自动退还",
+        },
+      });
+    }
+    return true;
+  });
 }
 
 /** ASK 模式：调用大模型非流式对话接口，直接返回问答文本 */
@@ -531,12 +574,13 @@ async function runAvatarClone(prompt: string, title: string) {
 
 /** 数字人任务单落库：供应商异步合成，凭单号追踪进度 */
 async function recordAvatarJob(
+  tx: Prisma.TransactionClient,
   taskId: string,
   userId: string,
   result: Record<string, unknown>,
 ) {
   const kind = result.kind === "avatar_clone" ? "CLONE" : "VIDEO";
-  await prisma.avatarJob.create({
+  await tx.avatarJob.create({
     data: {
       userId,
       taskId,
@@ -673,122 +717,102 @@ function generatePlan(type: string, title: string, prompt: string, price: number
   };
 }
 
-/** 执行一个任务（异步推进状态机直至回传） */
-export function runTask(taskId: string, phase: "plan" | "execute" = "plan") {
-  void (async () => {
-    try {
-      await sleep(800);
+/** 领取并执行一个任务；重复或迟到的投递直接跳过。 */
+export async function executeTask(
+  taskId: string,
+  phase: TaskExecutionPhase,
+  token: string,
+): Promise<void> {
+  try {
+    const claimed = await prisma.task.updateMany({
+      where: { id: taskId, status: TaskStatus.QUEUED, startedAt: new Date(token) },
+      data: { status: TaskStatus.RUNNING },
+    });
+    if (claimed.count !== 1) return;
 
-      if (phase === "plan") {
-        const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-        if (task.mode === TaskMode.PLAN) {
-          // PLAN 模式第一阶段：生成预案，不扣费、不进审核
-          await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
-          const input = JSON.parse(task.inputJson) as { prompt: string };
-          // 方案展示医生实际支付价（含会员折扣），与 confirm 阶段扣费一致
-          const owner = await prisma.user.findUnique({ where: { id: task.userId } });
-          const level = effectiveLevel(owner?.memberLevel, owner?.memberExpireAt);
-          const basePrice = TASK_TYPE_META[task.type as TaskType]?.price ?? 0;
-          const price = applyMemberDiscount(basePrice, level);
-          const plan = generatePlan(task.type, task.title, input.prompt, price);
-          await prisma.task.update({
-            where: { id: taskId },
-            data: { resultJson: JSON.stringify(plan) },
-          });
-          await transition(taskId, TaskStatus.PLAN_READY);
-          return;
-        }
-      }
+    await sleep(800);
+    const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+    const input = JSON.parse(task.inputJson) as { prompt: string };
 
-      // ASK 模式：仅问答，直接调大模型返回回答，不走技能/预审/人工审核
-      const askTask = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-      if (askTask.mode === TaskMode.ASK) {
-        await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
-        const input = JSON.parse(askTask.inputJson) as { prompt: string };
-        const answer = await runAsk(input.prompt, askTask.model);
-        await prisma.task.update({
-          where: { id: taskId },
-          data: { resultJson: JSON.stringify({ kind: "answer", answer, prompt: input.prompt }) },
-        });
-        await transition(taskId, TaskStatus.DELIVERED, { deliveredAt: new Date() });
-        return;
-      }
+    if (phase === "plan" && task.mode === TaskMode.PLAN) {
+      // PLAN 第一阶段只生成预案，不扣费、不进审核。
+      const owner = await prisma.user.findUnique({ where: { id: task.userId } });
+      const level = effectiveLevel(owner?.memberLevel, owner?.memberExpireAt);
+      const basePrice = TASK_TYPE_META[task.type as TaskType]?.price ?? 0;
+      const price = applyMemberDiscount(basePrice, level);
+      const plan = generatePlan(task.type, task.title, input.prompt, price);
+      await prisma.task.updateMany({
+        where: { id: taskId, status: TaskStatus.RUNNING, startedAt: new Date(token) },
+        data: { status: TaskStatus.PLAN_READY, resultJson: JSON.stringify(plan) },
+      });
+      return;
+    }
 
-      await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
-
-      const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
-      const input = JSON.parse(task.inputJson) as { prompt: string };
-
-      const result =
-        task.type === TaskType.LITERATURE_SEARCH
-          ? await runLiteratureSearch(input.prompt, task.title, task.model)
-          : task.type === TaskType.LITERATURE_DIGEST
-            ? await runLiteratureDigest(input.prompt, task.title, task.model)
-            : task.type === TaskType.CHART
-              ? await runVisualize(input.prompt, task.title)
-              : task.type === TaskType.REVIEW_DRAFT
-                ? await runReviewDraft(input.prompt, task.title, task.model)
-                : task.type === TaskType.EXPERIMENT_DESIGN
-                  ? await runExperimentDesign(input.prompt, task.title, task.model)
-                  : task.type === TaskType.CLINICAL_DESIGN
-                    ? await runClinicalDesign(input.prompt, task.title, task.model)
-                    : task.type === TaskType.REFERENCE_FORMAT
-                      ? await runReferences(input.prompt, task.title)
-                      : task.type === TaskType.CONTENT_GEN
-                        ? await runContentGen(input.prompt, task.title, task.model)
-                        : task.type === TaskType.STYLE_REWRITE
-                          ? await runStyleRewrite(input.prompt, task.title, task.model)
-                          : task.type === TaskType.AVATAR_VIDEO
-                            ? await runAvatarVideo(input.prompt, task.title, task.model)
-                            : task.type === TaskType.AVATAR_CLONE
-                              ? await runAvatarClone(input.prompt, task.title)
-                              : (await sleep(1200), mockDeliverable(task.type, task.title));
-
-      // 数字人任务单落库（供应商异步合成，后续凭单号追踪）
-      if (result.kind === "avatar_video" || result.kind === "avatar_clone") {
-        await recordAvatarJob(taskId, task.userId, result as Record<string, unknown>);
-      }
-
-      // AI 合规预审 + 交付物落库，供合规审核台人工审核（通过后才回传医生）
-      const precheck = await runPrecheck(task.type, task.title, result, input.prompt);
-      await prisma.task.update({
-        where: { id: taskId },
+    // ASK 仅问答，跳过技能、预审和人工审核。
+    if (task.mode === TaskMode.ASK) {
+      const answer = await runAsk(input.prompt, task.model);
+      await prisma.task.updateMany({
+        where: { id: taskId, status: TaskStatus.RUNNING, startedAt: new Date(token) },
         data: {
+          status: TaskStatus.DELIVERED,
+          resultJson: JSON.stringify({ kind: "answer", answer, prompt: input.prompt }),
+          deliveredAt: new Date(),
+        },
+      });
+      return;
+    }
+
+    const result =
+      task.type === TaskType.LITERATURE_SEARCH
+        ? await runLiteratureSearch(input.prompt, task.title, task.model)
+        : task.type === TaskType.LITERATURE_DIGEST
+          ? await runLiteratureDigest(input.prompt, task.title, task.model)
+          : task.type === TaskType.CHART
+            ? await runVisualize(input.prompt, task.title)
+            : task.type === TaskType.REVIEW_DRAFT
+              ? await runReviewDraft(input.prompt, task.title, task.model)
+              : task.type === TaskType.EXPERIMENT_DESIGN
+                ? await runExperimentDesign(input.prompt, task.title, task.model)
+                : task.type === TaskType.CLINICAL_DESIGN
+                  ? await runClinicalDesign(input.prompt, task.title, task.model)
+                  : task.type === TaskType.REFERENCE_FORMAT
+                    ? await runReferences(input.prompt, task.title)
+                    : task.type === TaskType.CONTENT_GEN
+                      ? await runContentGen(input.prompt, task.title, task.model)
+                      : task.type === TaskType.STYLE_REWRITE
+                        ? await runStyleRewrite(input.prompt, task.title, task.model)
+                        : task.type === TaskType.AVATAR_VIDEO
+                          ? await runAvatarVideo(input.prompt, task.title, task.model)
+                          : task.type === TaskType.AVATAR_CLONE
+                            ? await runAvatarClone(input.prompt, task.title)
+                            : (await sleep(1200), mockDeliverable(task.type, task.title));
+
+    // AI 合规预审 + 交付物落库，供合规审核台人工审核（通过后才回传医生）。
+    const precheck = await runPrecheck(task.type, task.title, result, input.prompt);
+    const completed = await prisma.$transaction(async (tx) => {
+      const updated = await tx.task.updateMany({
+        where: { id: taskId, status: TaskStatus.RUNNING, startedAt: new Date(token) },
+        data: {
+          status: TaskStatus.REVIEWING,
           resultJson: JSON.stringify(result),
           precheckStatus: precheck.status,
           precheckJson: JSON.stringify(precheck),
           precheckAt: new Date(),
+          reviewStatus: ReviewStatus.PENDING,
         },
       });
-      await transition(taskId, TaskStatus.REVIEWING, { reviewStatus: ReviewStatus.PENDING });
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      if (updated.count !== 1) return false;
 
-      // 失败退还积分：医生不应为未交付的服务付费
-      await prisma
-        .$transaction(async (tx) => {
-          const failed = await tx.task.update({
-            where: { id: taskId },
-            data: { status: TaskStatus.FAILED, failReason: reason },
-          });
-          if (failed.creditCost > 0) {
-            const account = await tx.creditAccount.update({
-              where: { userId: failed.userId },
-              data: { balance: { increment: failed.creditCost } },
-            });
-            await tx.creditLedger.create({
-              data: {
-                userId: failed.userId,
-                taskId,
-                type: "REFUND",
-                amount: failed.creditCost,
-                balanceAfter: account.balance,
-                note: "任务失败自动退还",
-              },
-            });
-          }
-        })
-        .catch(() => {});
-    }
-  })();
+      // 数字人任务单与任务状态必须同事务，避免留下无归属的供应商任务记录。
+      if (result.kind === "avatar_video" || result.kind === "avatar_clone") {
+        await recordAvatarJob(tx, taskId, task.userId, result as Record<string, unknown>);
+      }
+      return true;
+    });
+    if (!completed) return;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    await failTask(taskId, token, reason);
+    throw err;
+  }
 }

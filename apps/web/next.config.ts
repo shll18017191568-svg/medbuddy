@@ -13,6 +13,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@medbuddy/shared"],
+  serverExternalPackages: ["bullmq", "ioredis"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

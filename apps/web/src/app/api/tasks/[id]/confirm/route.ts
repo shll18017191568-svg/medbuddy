@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { runTask } from "@/lib/task-runner";
+import { dispatchTask, TASK_DISPATCH_ERROR } from "@/lib/task-queue";
 import { effectiveLevel } from "@/lib/membership";
 import {
   TASK_TYPE_META,
@@ -35,16 +35,24 @@ export async function POST(
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      // 先以 CAS 抢占本次确认，数据库约束并发请求只能有一个赢家。
+      const claimed = await tx.task.updateMany({
+        where: { id, status: TaskStatus.PLAN_READY },
+        data: {
+          status: TaskStatus.QUEUED,
+          creditCost: price,
+          startedAt: null,
+          failReason: null,
+        },
+      });
+      if (claimed.count !== 1) throw new Error("PLAN_CONFIRM_CONFLICT");
+
       const account = await tx.creditAccount.findUniqueOrThrow({ where: { userId: user.id } });
       if (account.balance < price) {
         throw new Error("INSUFFICIENT_CREDITS");
       }
       const balanceAfter = account.balance - price;
 
-      const u = await tx.task.update({
-        where: { id },
-        data: { status: TaskStatus.QUEUED, creditCost: price },
-      });
       await tx.creditLedger.create({
         data: {
           userId: user.id,
@@ -62,10 +70,10 @@ export async function POST(
         where: { id: account.id },
         data: { balance: balanceAfter },
       });
-      return u;
+      return tx.task.findUniqueOrThrow({ where: { id } });
     });
 
-    runTask(id, "execute");
+    await dispatchTask(id, "execute");
     return NextResponse.json({ ok: true, task: updated });
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT_CREDITS") {
@@ -73,6 +81,13 @@ export async function POST(
         { error: `积分不足：执行本任务需 ${price} 分，请签到或邀请好友获取积分` },
         { status: 402 },
       );
+    }
+    if (err instanceof Error && err.message === "PLAN_CONFIRM_CONFLICT") {
+      return NextResponse.json({ error: "当前任务状态不可确认执行" }, { status: 409 });
+    }
+    if (err instanceof Error && err.message === TASK_DISPATCH_ERROR) {
+      console.error("[tasks/confirm/dispatch]", err.cause);
+      return NextResponse.json({ error: "任务入队失败，请稍后重试" }, { status: 503 });
     }
     console.error("[tasks/confirm]", err);
     return NextResponse.json({ error: "确认执行失败，请稍后重试" }, { status: 500 });
