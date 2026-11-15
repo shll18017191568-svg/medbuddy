@@ -32,6 +32,23 @@ export async function POST(req: Request) {
   const price = applyMemberDiscount(basePrice, level);
 
   try {
+    if (mode === TaskMode.PLAN) {
+      // PLAN 模式：先出方案不扣费，医生确认后再执行与扣费
+      const task = await prisma.task.create({
+        data: {
+          userId: user.id,
+          type,
+          mode,
+          title,
+          status: TaskStatus.QUEUED,
+          inputJson: JSON.stringify({ prompt }),
+          creditCost: 0, // 确认执行时再按会员价扣
+        },
+      });
+      runTask(task.id, "plan");
+      return NextResponse.json({ ok: true, task });
+    }
+
     const task = await prisma.$transaction(async (tx) => {
       const account = await tx.creditAccount.findUniqueOrThrow({ where: { userId: user.id } });
       if (account.balance < price) {

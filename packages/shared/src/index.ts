@@ -18,6 +18,7 @@ export enum TaskStatus {
   DRAFT = "draft", // 草稿/待支付额度
   QUEUED = "queued", // 排队中
   RUNNING = "running", // 执行中（云端异步，关浏览器不中断）
+  PLAN_READY = "plan_ready", // 方案已就绪，等待医生确认后再执行（PLAN 模式专用）
   REVIEWING = "reviewing", // 合规审核中
   DELIVERED = "delivered", // 已回传提交医生
   FAILED = "failed", // 失败（可重试）
@@ -108,6 +109,7 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   [TaskStatus.DRAFT]: "待确认",
   [TaskStatus.QUEUED]: "排队中",
   [TaskStatus.RUNNING]: "执行中",
+  [TaskStatus.PLAN_READY]: "方案待确认",
   [TaskStatus.REVIEWING]: "审核中",
   [TaskStatus.DELIVERED]: "已完成",
   [TaskStatus.FAILED]: "失败",
@@ -315,8 +317,9 @@ export const AVATAR_JOB_STATUS_LABEL: Record<string, string> = {
 /** 状态流转合法性校验（AI 服务回写状态时同样遵守） */
 export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.DRAFT]: [TaskStatus.QUEUED, TaskStatus.FAILED],
-  [TaskStatus.QUEUED]: [TaskStatus.RUNNING, TaskStatus.FAILED],
-  [TaskStatus.RUNNING]: [TaskStatus.REVIEWING, TaskStatus.DELIVERED, TaskStatus.FAILED],
+  [TaskStatus.QUEUED]: [TaskStatus.RUNNING, TaskStatus.PLAN_READY, TaskStatus.FAILED],
+  [TaskStatus.RUNNING]: [TaskStatus.REVIEWING, TaskStatus.DELIVERED, TaskStatus.PLAN_READY, TaskStatus.FAILED],
+  [TaskStatus.PLAN_READY]: [TaskStatus.QUEUED, TaskStatus.FAILED],
   [TaskStatus.REVIEWING]: [TaskStatus.DELIVERED, TaskStatus.FAILED],
   [TaskStatus.DELIVERED]: [],
   [TaskStatus.FAILED]: [TaskStatus.QUEUED], // 重试

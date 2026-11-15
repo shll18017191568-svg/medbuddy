@@ -6,7 +6,8 @@
  */
 import { prisma } from "@/lib/prisma";
 import { precheckDeliverable, type PrecheckResult } from "@/lib/compliance";
-import { TaskStatus, canTransition, TaskType, ReviewStatus } from "@medbuddy/shared";
+import { effectiveLevel } from "@/lib/membership";
+import { TASK_TYPE_META, TaskMode, TaskStatus, canTransition, TaskType, ReviewStatus, applyMemberDiscount } from "@medbuddy/shared";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const AI_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
@@ -568,11 +569,117 @@ async function runPrecheck(
   }
 }
 
+/**
+ * 生成执行预案（PLAN 模式专用）：不调用 AI、不扣费，
+ * 基于任务类型给出结构化步骤/产出/费用/风险，供医生确认后再正式执行。
+ */
+function generatePlan(type: string, title: string, prompt: string, price: number) {
+  const steps: string[] = [];
+  const deliverables: string[] = [];
+  const risks: string[] = [];
+
+  switch (type as TaskType) {
+    case TaskType.LITERATURE_SEARCH:
+      steps.push("解析需求并转译为 PubMed 检索式", "调用 PubMed 实时检索近 5 年文献", "按相关度与发表质量筛选，最多 10 篇", "返回带 PMID 的清单");
+      deliverables.push("文献清单（含 PMID、期刊、发表时间、OA 状态）");
+      risks.push("检索式过宽可能命中不相关文献，确认后可在结果中进一步筛选");
+      break;
+    case TaskType.LITERATURE_DIGEST:
+      steps.push("校验 PMID 有效性", "拉取原文摘要", "按结构化模板拆解方法/结果/结论", "附原文摘要供核对");
+      deliverables.push("结构化解读报告 + 原文摘要");
+      risks.push("仅基于摘要，结论解读可能不完整，建议结合全文");
+      break;
+    case TaskType.CHART:
+      steps.push("解析 CSV 数据与绘图需求", "服务端生成确定性图表", "附带 AI 解读与统计摘要");
+      deliverables.push("PNG 图表 + 解读文字");
+      risks.push("数据质量直接影响图表，请确认 CSV 表头与数值无误");
+      break;
+    case TaskType.REVIEW_DRAFT:
+      steps.push("主题拆解与关键词扩展", "自动建库检索真实文献", "分章生成综述初稿", "引用格式校验与去重");
+      deliverables.push("综述 Markdown 初稿 + 真实文献引用清单");
+      risks.push("AI 生成内容需人工复核事实与引用准确性");
+      break;
+    case TaskType.EXPERIMENT_DESIGN:
+      steps.push("理解课题方向", "生成主实验与子实验分组方案", "给出对照/重复/统计建议");
+      deliverables.push("实验设计 Markdown 方案");
+      risks.push("方案为执行建议，具体实施需结合实验室条件调整");
+      break;
+    case TaskType.CLINICAL_DESIGN:
+      steps.push("PICO 拆解", "生成研究类型与纳排标准", "统计检验与样本量建议", "伦理与注册要点");
+      deliverables.push("临床研究方案 Markdown");
+      risks.push("伦理审查与注册为法定流程，需按机构要求执行");
+      break;
+    case TaskType.REFERENCE_FORMAT:
+      steps.push("解析 PMID 列表", "拉取文献元数据", "按指定格式生成引文");
+      deliverables.push("格式化引文 + BibTeX/RIS 文件");
+      risks.push("元数据缺失时可能需要手动补全作者/期刊");
+      break;
+    case TaskType.AVATAR_VIDEO:
+      steps.push("生成口播稿与分镜", "提交第三方数字人合成", "返回任务单号追踪进度");
+      deliverables.push("口播稿 + 分镜表 + 合成任务单号");
+      risks.push("成片生成需要时间，可在数字人工作室追踪");
+      break;
+    case TaskType.AVATAR_CLONE:
+      steps.push("核对克隆类型与用途", "输出材料清单与授权要求", "提交克隆任务单");
+      deliverables.push("材料清单 + 克隆任务单号");
+      risks.push("需本人授权材料，不合规将被供应商驳回");
+      break;
+    case TaskType.CONTENT_GEN:
+      steps.push("识别内容形式（图文/脚本/卡片）", "生成内容初稿", "合规预审");
+      deliverables.push("内容 Markdown 初稿");
+      risks.push("涉及医疗内容需经合规审核后使用");
+      break;
+    case TaskType.STYLE_REWRITE:
+      steps.push("识别目标文风", "保真改写（数值不丢）", "输出改写稿");
+      deliverables.push("改写稿 + 改动对照");
+      risks.push("医学事实以原文为准，改写不改变结论");
+      break;
+    default:
+      steps.push("解析需求", "执行对应技能", "合规预审", "回传交付物");
+      deliverables.push("任务交付物");
+      risks.push("AI 生成内容仅供参考");
+  }
+
+  return {
+    kind: "plan",
+    title,
+    summary: `「${title}」执行预案已生成：${steps.length} 步，预计交付 ${deliverables.length} 项产出`,
+    steps,
+    deliverables,
+    cost: price,
+    eta: "通常 1-3 分钟",
+    risks,
+    prompt,
+  };
+}
+
 /** 执行一个任务（异步推进状态机直至回传） */
-export function runTask(taskId: string) {
+export function runTask(taskId: string, phase: "plan" | "execute" = "plan") {
   void (async () => {
     try {
       await sleep(800);
+
+      if (phase === "plan") {
+        const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
+        if (task.mode === TaskMode.PLAN) {
+          // PLAN 模式第一阶段：生成预案，不扣费、不进审核
+          await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
+          const input = JSON.parse(task.inputJson) as { prompt: string };
+          // 方案展示医生实际支付价（含会员折扣），与 confirm 阶段扣费一致
+          const owner = await prisma.user.findUnique({ where: { id: task.userId } });
+          const level = effectiveLevel(owner?.memberLevel, owner?.memberExpireAt);
+          const basePrice = TASK_TYPE_META[task.type as TaskType]?.price ?? 0;
+          const price = applyMemberDiscount(basePrice, level);
+          const plan = generatePlan(task.type, task.title, input.prompt, price);
+          await prisma.task.update({
+            where: { id: taskId },
+            data: { resultJson: JSON.stringify(plan) },
+          });
+          await transition(taskId, TaskStatus.PLAN_READY);
+          return;
+        }
+      }
+
       await transition(taskId, TaskStatus.RUNNING, { startedAt: new Date() });
 
       const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });

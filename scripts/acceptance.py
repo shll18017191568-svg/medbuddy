@@ -490,6 +490,81 @@ with httpx.Client(timeout=90) as c:
               str(invite_ledgers))
         check("邀请页可访问", inviter.get(f"{BASE}/invite").status_code == 200)
 
+    print("\n[17] PLAN 模式：先方案后执行")
+    bal_plan_start = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    pc = c.post(f"{BASE}/api/tasks", json={
+        "type": "literature_search", "mode": "plan",
+        "title": "验收-PLAN文献检索", "prompt": "铁死亡在肿瘤免疫中的作用近3年综述",
+    })
+    check("PLAN 任务创建成功", pc.status_code == 200, f"HTTP {pc.status_code}")
+    ptid = pc.json()["task"]["id"]
+    check("PLAN 创建时不扣费", pc.json()["task"]["creditCost"] == 0
+          and c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"] == bal_plan_start)
+    plan_ready = None
+    for _ in range(20):
+        time.sleep(2)
+        pt = c.get(f"{BASE}/api/tasks/{ptid}").json()["task"]
+        if pt["status"] == "plan_ready":
+            plan_ready = pt
+            break
+    check("方案生成到达 plan_ready", plan_ready is not None, (plan_ready or {}).get("status", "超时"))
+    prj = json.loads(plan_ready["resultJson"]) if plan_ready else {}
+    check("方案结构合法", prj.get("kind") == "plan" and len(prj.get("steps", [])) > 0
+          and isinstance(prj.get("cost"), (int, float)), f"kind={prj.get('kind')}")
+    plan_cost = prj.get("cost", 0)
+    bal_before_confirm = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    conf = c.post(f"{BASE}/api/tasks/{ptid}/confirm")
+    check("确认执行成功", conf.status_code == 200, f"HTTP {conf.status_code}")
+    bal_after_confirm = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    check("确认扣费与方案价一致", bal_before_confirm - bal_after_confirm == plan_cost,
+          f"方案价 {plan_cost} 实扣 {bal_before_confirm - bal_after_confirm}")
+    plan_delivered = None
+    for _ in range(30):
+        time.sleep(4)
+        pt = c.get(f"{BASE}/api/tasks/{ptid}").json()["task"]
+        if pt["status"] == "reviewing":
+            c.post(f"{BASE}/api/admin/tasks/{ptid}/review",
+                   json={"action": "APPROVE", "note": "验收自动通过"})
+        if pt["status"] in ("delivered", "failed"):
+            plan_delivered = pt
+            break
+    check("PLAN 确认后最终交付", plan_delivered is not None and plan_delivered["status"] == "delivered",
+          (plan_delivered or {}).get("status", "超时"))
+
+    # 取消流程
+    cc = c.post(f"{BASE}/api/tasks", json={
+        "type": "literature_search", "mode": "plan",
+        "title": "验收-PLAN取消", "prompt": "取消测试",
+    })
+    ctid = cc.json()["task"]["id"]
+    for _ in range(20):
+        time.sleep(2)
+        ct = c.get(f"{BASE}/api/tasks/{ctid}").json()["task"]
+        if ct["status"] == "plan_ready":
+            break
+    bal_cancel = c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"]
+    cancel_res = c.post(f"{BASE}/api/tasks/{ctid}/cancel")
+    check("取消方案成功", cancel_res.status_code == 200, f"HTTP {cancel_res.status_code}")
+    ct = c.get(f"{BASE}/api/tasks/{ctid}").json()["task"]
+    check("取消后状态为 failed 且不扣费", ct["status"] == "failed"
+          and c.get(f"{BASE}/api/auth/me").json()["user"]["creditBalance"] == bal_cancel,
+          f"status={ct['status']}")
+
+    # 重复确认防重
+    dc = c.post(f"{BASE}/api/tasks", json={
+        "type": "literature_search", "mode": "plan",
+        "title": "验收-PLAN重复确认", "prompt": "重复确认测试",
+    })
+    dtid = dc.json()["task"]["id"]
+    for _ in range(20):
+        time.sleep(2)
+        dt = c.get(f"{BASE}/api/tasks/{dtid}").json()["task"]
+        if dt["status"] == "plan_ready":
+            break
+    c.post(f"{BASE}/api/tasks/{dtid}/confirm")
+    double = c.post(f"{BASE}/api/tasks/{dtid}/confirm")
+    check("重复确认返回 409", double.status_code == 409, f"HTTP {double.status_code}")
+
 print("\n" + "=" * 56)
 passed = sum(1 for _, ok, _ in results if ok)
 failed = len(results) - passed
